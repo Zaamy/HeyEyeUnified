@@ -52,7 +52,7 @@ EyeOverlay::EyeOverlay(GazeTracker* gazeTracker, wxWindow *parent)
     , m_settingZoomFactor(3.0f)
     , m_isScrollMode(false)
     , m_isDragMode(false)
-    , m_isHiddenMode(false)
+    , m_isHiddenMode(true)  // Start in hidden mode by default
     , m_dwellProgress(0.0f)
     , m_dwellPosition(0, 0)
     , m_lastBringToFrontTimestamp(0)
@@ -1032,21 +1032,29 @@ void EyeOverlay::CreateButtonsAtCenter()
     // Create buttons in radial pattern (matching HeyEyeControl layout)
     // All button positions are relative to window center
 
-    // Keyboard button (top-left)
-    auto btnKeyboard = std::make_unique<CircularButton>(
-        m_keyboardVisible ? wxT("Hide\nKeyboard") : wxT("Show\nKeyboard"),
-        wxPoint(centerX - 175, centerY - 175)
-    );
-    btnKeyboard->OnActivated = [this]() {
-        ShowKeyboard(!m_keyboardVisible);
-        ClearAllButtons();
-    };
-    m_visibleButtons.push_back(std::move(btnKeyboard));
+    // Keyboard button (top-left) - not shown in drag mode
+    if (!m_isDragMode) {
+        auto btnKeyboard = std::make_unique<CircularButton>(
+            m_keyboardVisible ? wxT("Hide\nKeyboard") : wxT("Show\nKeyboard"),
+            wxPoint(centerX - 175, centerY - 175)
+        );
+        btnKeyboard->OnActivated = [this]() {
+            ShowKeyboard(!m_keyboardVisible);
+            ClearAllButtons();
+        };
+        m_visibleButtons.push_back(std::move(btnKeyboard));
+    }
 
-    // Undo button (left)
+    // Undo button (left) - in drag mode, releases the drag
     auto btnUndo = std::make_unique<CircularButton>(wxT("Undo"), wxPoint(centerX - 250, centerY));
     btnUndo->OnActivated = [this]() {
-        ClearAllButtons();
+        if (m_isDragMode) {
+            // In drag mode, Undo should release the drag
+            Drop();
+        } else {
+            // In normal mode, just clear buttons
+            ClearAllButtons();
+        }
     };
     m_visibleButtons.push_back(std::move(btnUndo));
 
