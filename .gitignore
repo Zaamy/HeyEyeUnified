@@ -1,0 +1,49 @@
+# Build directories
+build/
+debug/
+release/
+Debug/
+Release/
+
+# Object files
+*.o
+*.obj
+
+# Compiled binaries
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Visual Studio files
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.suo
+*.user
+.vs/
+
+# ML assets (large files, store separately)
+assets/*.onnx
+assets/*.faiss
+assets/*.msgpck
+assets/*.bin
+assets/*.txt
+
+# Temporary files
+*~
+*.swp
+*.bak
+*.tmp
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Dependencies (should be managed separately)
+onnxruntime-*/
+tobii/
+espeak-ng/
+llama.cpp/
