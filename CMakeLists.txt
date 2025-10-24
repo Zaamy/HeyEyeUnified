@@ -23,6 +23,7 @@ set(SOURCES
     ${SRC_DIR}/textinputengine.cpp
     ${SRC_DIR}/eyeoverlay.cpp
     ${SRC_DIR}/CircularButton.cpp
+    ${SRC_DIR}/settings.cpp
 )
 
 # Header files
@@ -33,6 +34,7 @@ set(HEADERS
     ${INCLUDE_DIR}/textinputengine.h
     ${INCLUDE_DIR}/eyeoverlay.h
     ${INCLUDE_DIR}/CircularButton.h
+    ${INCLUDE_DIR}/settings.h
 )
 
 # Create executable

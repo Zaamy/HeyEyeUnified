@@ -10,6 +10,7 @@
 #include "keyboardview.h"
 #include "textinputengine.h"
 #include "CircularButton.h"
+#include "settings.h"
 
 /**
  * @brief Full-screen transparent overlay providing eye-controlled interface (HeyEyeControl style)
@@ -61,6 +62,7 @@ private:
     GazeTracker* m_gazeTracker;
     KeyboardView* m_keyboard;
     TextInputEngine* m_textEngine;
+    Settings* m_settings;
 
     // Circular buttons (HeyEyeControl style)
     std::vector<std::unique_ptr<CircularButton>> m_visibleButtons;

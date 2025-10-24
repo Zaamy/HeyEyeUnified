@@ -39,6 +39,7 @@ EyeOverlay::EyeOverlay(GazeTracker* gazeTracker, wxWindow *parent)
     , m_gazeTracker(gazeTracker)
     , m_keyboard(nullptr)
     , m_textEngine(nullptr)
+    , m_settings(nullptr)
     , m_visible(true)
     , m_keyboardVisible(false)
     , m_gazePosition(0, 0)
@@ -67,6 +68,19 @@ EyeOverlay::EyeOverlay(GazeTracker* gazeTracker, wxWindow *parent)
     , m_oldWndProc(nullptr)
 #endif
 {
+    // Load settings from config file
+    m_settings = new Settings();
+
+    // Apply settings
+    m_settingWaitTime = m_settings->GetWaitTime();
+    m_settingHoldTime = m_settings->GetHoldTime();
+    m_settingZoomFactor = m_settings->GetZoomFactor();
+    m_settingBackgroundOpacity = m_settings->GetBackgroundOpacity();
+    m_settingsColorR = m_settings->GetColorR();
+    m_settingsColorG = m_settings->GetColorG();
+    m_settingsColorB = m_settings->GetColorB();
+    m_settingSelectionWidth = m_settings->GetSelectionWidth();
+    m_settingSelectionHeight = m_settings->GetSelectionHeight();
     // Transparent background setup
     SetBackgroundStyle(wxBG_STYLE_PAINT);
     SetBackgroundColour(*wxBLACK);
@@ -108,7 +122,26 @@ EyeOverlay::EyeOverlay(GazeTracker* gazeTracker, wxWindow *parent)
     wxLogMessage("EyeOverlay initialized: %dx%d", screenRect.GetWidth(), screenRect.GetHeight());
 }
 
-EyeOverlay::~EyeOverlay() = default;
+EyeOverlay::~EyeOverlay()
+{
+    // Save settings before exit
+    if (m_settings) {
+        // Update settings with current values
+        m_settings->SetWaitTime(m_settingWaitTime);
+        m_settings->SetHoldTime(m_settingHoldTime);
+        m_settings->SetZoomFactor(m_settingZoomFactor);
+        m_settings->SetBackgroundOpacity(m_settingBackgroundOpacity);
+        m_settings->SetColor(m_settingsColorR, m_settingsColorG, m_settingsColorB);
+        m_settings->SetSelectionWidth(m_settingSelectionWidth);
+        m_settings->SetSelectionHeight(m_settingSelectionHeight);
+
+        // Save to file
+        m_settings->Save();
+
+        delete m_settings;
+        m_settings = nullptr;
+    }
+}
 
 #ifdef __WXMSW__
 // Windows message handler to prevent window from taking focus
