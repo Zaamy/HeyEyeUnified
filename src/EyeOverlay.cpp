@@ -155,10 +155,14 @@ void EyeOverlay::OnPaint(wxPaintEvent& event)
     wxGraphicsContext* gc = wxGraphicsContext::Create(mdc);
     if (!gc) return;
 
-    // Clear to fully transparent
+    // Clear to fully transparent first
     gc->SetCompositionMode(wxCOMPOSITION_CLEAR);
     gc->DrawRectangle(0, 0, clientSize.GetWidth(), clientSize.GetHeight());
-    gc->SetCompositionMode(wxCOMPOSITION_OVER);
+
+    // Set high-quality rendering for transparent backgrounds
+    gc->SetCompositionMode(wxCOMPOSITION_OVER);  // Alpha blending mode
+    gc->SetAntialiasMode(wxANTIALIAS_DEFAULT);  // Enable antialiasing
+    gc->SetInterpolationQuality(wxINTERPOLATION_BEST);  // High-quality scaling
 
     // Like HeyEyeControl: if not visible, just draw nothing (fully transparent)
     if (!m_visible) {
@@ -190,11 +194,15 @@ void EyeOverlay::OnPaint(wxPaintEvent& event)
 
     wxColour buttonColor(m_settingsColorR, m_settingsColorG, m_settingsColorB);
 
-    // Draw semi-transparent background if needed
-    if (m_hasScreenshot) {
+    // Draw semi-transparent background if buttons are visible (provides proper background for text antialiasing)
+    if (m_hasScreenshot || !m_visibleButtons.empty()) {
         gc->SetBrush(wxBrush(wxColour(0, 0, 0, m_settingBackgroundOpacity)));
         gc->SetPen(*wxTRANSPARENT_PEN);
         gc->DrawRectangle(0, 0, clientSize.GetWidth(), clientSize.GetHeight());
+    }
+
+    // Draw screenshot if available
+    if (m_hasScreenshot) {
 
         int centerX = clientSize.GetWidth() / 2;
         int centerY = clientSize.GetHeight() / 2;
@@ -332,12 +340,15 @@ void EyeOverlay::DrawButtonWithGC(wxGraphicsContext* gc, CircularButton* button,
     bool isSelected = button->IsSelected();
 
     // Draw text with GDI+ (handles transparent background correctly)
+    // Antialiasing and quality settings are set globally in OnPaint
     wxFont font(12, wxFONTFAMILY_DEFAULT, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD);
     gc->SetFont(font, color);
 
     wxString label = button->GetLabel();
     double textWidth, textHeight;
     gc->GetTextExtent(label, &textWidth, &textHeight);
+
+    // Draw text - GDI+ will handle antialiasing correctly on transparent background
     gc->DrawText(label, pos.x - textWidth/2, pos.y - textHeight/2);
 
     // Draw circle
@@ -674,6 +685,7 @@ void EyeOverlay::CreateButtonsAtCenter()
 
         // Make overlay invisible before screenshot (like HeyEyeControl - just set flag and repaint)
         m_visible = false;
+        Hide();
         Refresh();
 
         // Take screenshot of ENTIRE screen (like HeyEyeControl)
@@ -715,6 +727,8 @@ void EyeOverlay::CreateButtonsAtCenter()
 
         // Make overlay visible again
         m_visible = true;
+        Show();  // Must call Show() since we called Hide() before screenshot
+        Refresh();  // Force repaint to show buttons
     }
 
     // Create buttons at center of screen
