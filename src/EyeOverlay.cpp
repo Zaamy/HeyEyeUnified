@@ -4,9 +4,10 @@
 #include <wx/dcscreen.h>
 #include <wx/rawbmp.h>
 #include <wx/graphics.h>
-#include <cmath>   // For std::sqrt
-#include <map>     // For std::map
-#include <cctype>  // For toupper
+#include <cmath>      // For std::sqrt
+#include <map>        // For std::map
+#include <cctype>     // For toupper
+#include <algorithm>  // For std::find_if
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -58,6 +59,7 @@ EyeOverlay::EyeOverlay(GazeTracker* gazeTracker, wxWindow *parent)
     , m_lastBringToFrontTimestamp(0)
     , m_settingWaitTime(800)
     , m_settingHoldTime(800)
+    , m_settingCursorDelay(50)
     , m_settingsColorR(102)
     , m_settingsColorG(204)
     , m_settingsColorB(255)
@@ -74,6 +76,7 @@ EyeOverlay::EyeOverlay(GazeTracker* gazeTracker, wxWindow *parent)
     // Apply settings
     m_settingWaitTime = m_settings->GetWaitTime();
     m_settingHoldTime = m_settings->GetHoldTime();
+    m_settingCursorDelay = m_settings->GetCursorDelay();
     m_settingZoomFactor = m_settings->GetZoomFactor();
     m_settingBackgroundOpacity = m_settings->GetBackgroundOpacity();
     m_settingsColorR = m_settings->GetColorR();
@@ -605,17 +608,48 @@ void EyeOverlay::DrawKeyboardWithGC(wxGraphicsContext* gc, const wxColour& color
     // Store Undo button as a special key
     m_keyboardKeys.push_back(KeyboardKey(wxT("UNDO"), wxRect(undoX - undoSize/2, undoY - undoSize/2, undoSize, undoSize)));
 
+    // Draw Submit button (top-right corner)
+    int submitX = clientSize.GetWidth() - 50;
+    int submitY = 50;
+    int submitSize = 100;
+
+    gc->SetPen(wxPen(color, 2));
+    gc->SetBrush(*wxTRANSPARENT_BRUSH);
+    gc->DrawEllipse(submitX - submitSize/2, submitY - submitSize/2, submitSize, submitSize);
+
+    gc->SetFont(undoFont, color);
+    gc->GetTextExtent(wxT("Submit"), &textWidth, &textHeight);
+    gc->DrawText(wxT("Submit"), submitX - textWidth/2, submitY - textHeight/2);
+
+    // Store Submit button as a special key
+    m_keyboardKeys.push_back(KeyboardKey(wxT("SUBMIT"), wxRect(submitX - submitSize/2, submitY - submitSize/2, submitSize, submitSize)));
+
     // Restore previous progress for Undo button if it exists
-    if (progressMap.count(wxT("UNDO")) > 0) {
-        m_keyboardKeys.back().dwellProgress = progressMap[wxT("UNDO")];
+    auto undoIter = std::find_if(m_keyboardKeys.begin(), m_keyboardKeys.end(),
+                                  [](const KeyboardKey& k) { return k.label == wxT("UNDO"); });
+    if (undoIter != m_keyboardKeys.end() && progressMap.count(wxT("UNDO")) > 0) {
+        undoIter->dwellProgress = progressMap[wxT("UNDO")];
+    }
+
+    // Restore previous progress for Submit button if it exists
+    if (progressMap.count(wxT("SUBMIT")) > 0) {
+        m_keyboardKeys.back().dwellProgress = progressMap[wxT("SUBMIT")];
     }
 
     // Draw progress arc for Undo button if needed
-    float undoProgress = m_keyboardKeys.back().dwellProgress;
-    if (undoProgress > 0.0f) {
+    if (undoIter != m_keyboardKeys.end() && undoIter->dwellProgress > 0.0f) {
         gc->SetPen(wxPen(color, 6));
         wxGraphicsPath path = gc->CreatePath();
-        path.AddArc(undoX, undoY, undoSize/2 - 5, 0, undoProgress * 2.0 * M_PI, true);
+        path.AddArc(undoX, undoY, undoSize/2 - 5, 0, undoIter->dwellProgress * 2.0 * M_PI, true);
+        gc->StrokePath(path);
+    }
+
+    // Draw progress arc for Submit button if needed
+    float submitProgress = m_keyboardKeys.back().dwellProgress;
+    if (submitProgress > 0.0f) {
+        gc->SetPen(wxPen(color, 6));
+        wxGraphicsPath path = gc->CreatePath();
+        path.AddArc(submitX, submitY, submitSize/2 - 5, 0, submitProgress * 2.0 * M_PI, true);
         gc->StrokePath(path);
     }
 }
@@ -628,6 +662,10 @@ void EyeOverlay::HandleKeyActivation(const wxString& keyLabel)
         // Undo button - hide keyboard and return to normal overlay
         ShowKeyboard(false);
         m_keyboardKeys.clear();
+    } else if (keyLabel == wxT("SUBMIT")) {
+        // Submit button - send text to focused application
+        SubmitText();
+        // Keep keyboard visible after submit (don't close it)
     } else if (keyLabel == wxT("SPACE")) {
         // Space key
         if (m_textEngine) {
@@ -1185,12 +1223,12 @@ void EyeOverlay::Click()
     Update();
 
 #ifdef __WXMSW__
-    wxMilliSleep(10);
+    wxMilliSleep(100);
 
     // Move cursor and click
     SetCursorPos(m_screenshotPosition.x, m_screenshotPosition.y);
 
-    wxMilliSleep(50);
+    wxMilliSleep(m_settingCursorDelay);
 
     INPUT inputs[2];
     ZeroMemory(inputs, sizeof(inputs));
@@ -1221,12 +1259,12 @@ void EyeOverlay::ClickRight()
     Update();
 
 #ifdef __WXMSW__
-    wxMilliSleep(10);
+    wxMilliSleep(100);
 
     // Move cursor and click
     SetCursorPos(m_screenshotPosition.x, m_screenshotPosition.y);
-    
-    wxMilliSleep(50);
+
+    wxMilliSleep(m_settingCursorDelay);
 
     // do a left click at the location before
     INPUT inputs_1[2];
@@ -1243,7 +1281,7 @@ void EyeOverlay::ClickRight()
     inputs_2[1].type = INPUT_MOUSE;
     inputs_2[1].mi.dwFlags = MOUSEEVENTF_RIGHTUP;
     SendInput(2, inputs_1, sizeof(INPUT));
-    wxMilliSleep(10);
+    wxMilliSleep(100);
     SendInput(2, inputs_2, sizeof(INPUT));
 #endif
 
@@ -1267,12 +1305,12 @@ void EyeOverlay::DoubleClick()
     Update();
 
 #ifdef __WXMSW__
-    wxMilliSleep(10);
+    wxMilliSleep(100);
 
     // Move cursor and double click
     SetCursorPos(m_screenshotPosition.x, m_screenshotPosition.y);
 
-    wxMilliSleep(50);
+    wxMilliSleep(m_settingCursorDelay);
 
     INPUT inputs[2];
     ZeroMemory(inputs, sizeof(inputs));
@@ -1283,7 +1321,7 @@ void EyeOverlay::DoubleClick()
 
     // Send twice for double click
     SendInput(2, inputs, sizeof(INPUT));
-    wxMilliSleep(50);
+    wxMilliSleep(100);
     SendInput(2, inputs, sizeof(INPUT));
 #endif
 
@@ -1318,12 +1356,12 @@ void EyeOverlay::Drag()
     Update();
 
 #ifdef __WXMSW__
-    wxMilliSleep(10);
+    wxMilliSleep(100);
 
     // Move cursor and start drag (button DOWN only)
     SetCursorPos(m_screenshotPosition.x, m_screenshotPosition.y);
-    
-    wxMilliSleep(50);
+
+    wxMilliSleep(m_settingCursorDelay);
 
     INPUT input;
     ZeroMemory(&input, sizeof(input));
@@ -1352,12 +1390,12 @@ void EyeOverlay::Drop()
     Update();
 
 #ifdef __WXMSW__
-    wxMilliSleep(10);
+    wxMilliSleep(100);
 
     // Move cursor and release drag (button UP)
     SetCursorPos(m_screenshotPosition.x, m_screenshotPosition.y);
 
-    wxMilliSleep(50);
+    wxMilliSleep(m_settingCursorDelay);
 
     INPUT input;
     ZeroMemory(&input, sizeof(input));
@@ -1388,6 +1426,103 @@ void EyeOverlay::ToggleHide()
     ClearAllButtons();
 }
 
+void EyeOverlay::SubmitText()
+{
+    if (!m_textEngine) return;
+
+    wxString text = m_textEngine->GetCurrentText();
+    if (text.IsEmpty()) {
+        wxLogMessage("SubmitText: No text to submit");
+        return;
+    }
+
+    wxLogMessage("SubmitText: Sending '%s'", text);
+
+    // Hide overlay
+    m_visible = false;
+    Hide();
+    Refresh();
+    Update();
+
+#ifdef __WXMSW__
+    wxMilliSleep(100);
+
+    // Move cursor and click first (to focus the text field)
+    SetCursorPos(m_screenshotPosition.x, m_screenshotPosition.y);
+
+    wxMilliSleep(m_settingCursorDelay);
+
+    // Perform click to focus
+    INPUT clickInputs[2];
+    ZeroMemory(clickInputs, sizeof(clickInputs));
+    clickInputs[0].type = INPUT_MOUSE;
+    clickInputs[0].mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+    clickInputs[1].type = INPUT_MOUSE;
+    clickInputs[1].mi.dwFlags = MOUSEEVENTF_LEFTUP;
+    SendInput(2, clickInputs, sizeof(INPUT));
+
+    wxMilliSleep(100);  // Wait for focus to be set
+
+    // Send each character as keyboard input
+    for (size_t i = 0; i < text.length(); ++i) {
+        wchar_t ch = text[i];
+
+        INPUT inputs[2];
+        ZeroMemory(inputs, sizeof(inputs));
+
+        // Key down
+        inputs[0].type = INPUT_KEYBOARD;
+        inputs[0].ki.wVk = 0;
+        inputs[0].ki.wScan = ch;
+        inputs[0].ki.dwFlags = KEYEVENTF_UNICODE;
+        inputs[0].ki.time = 0;
+
+        // Key up
+        inputs[1].type = INPUT_KEYBOARD;
+        inputs[1].ki.wVk = 0;
+        inputs[1].ki.wScan = ch;
+        inputs[1].ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
+        inputs[1].ki.time = 0;
+
+        SendInput(2, inputs, sizeof(INPUT));
+    }
+
+    wxLogMessage("SubmitText: Sent %zu characters", text.length());
+
+    // Send RETURN key to validate the query
+    wxMilliSleep(50);
+
+    INPUT returnInputs[2];
+    ZeroMemory(returnInputs, sizeof(returnInputs));
+
+    // RETURN key down
+    returnInputs[0].type = INPUT_KEYBOARD;
+    returnInputs[0].ki.wVk = VK_RETURN;
+    returnInputs[0].ki.dwFlags = 0;
+
+    // RETURN key up
+    returnInputs[1].type = INPUT_KEYBOARD;
+    returnInputs[1].ki.wVk = VK_RETURN;
+    returnInputs[1].ki.dwFlags = KEYEVENTF_KEYUP;
+
+    SendInput(2, returnInputs, sizeof(INPUT));
+    wxLogMessage("SubmitText: Sent RETURN key");
+#endif
+
+    // Clear the text after sending
+    if (m_textEngine) {
+        m_textEngine->Clear();
+    }
+
+    // Hide the keyboard after submit to prevent it from reappearing
+    ShowKeyboard(false);
+    m_keyboardKeys.clear();
+
+    m_visible = true;
+    Show();
+    Refresh();
+}
+
 void EyeOverlay::EnsureOnTop()
 {
 #ifdef __WXMSW__
@@ -1398,6 +1533,26 @@ void EyeOverlay::EnsureOnTop()
     SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
                  SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOACTIVATE);
 #endif
+}
+
+bool EyeOverlay::IsTextCursorAtPosition(int x, int y)
+{
+#ifdef __WXMSW__
+    // Get the current cursor information
+    CURSORINFO ci;
+    ci.cbSize = sizeof(CURSORINFO);
+
+    if (GetCursorInfo(&ci)) {
+        // Load the standard I-beam cursor (text edit cursor)
+        HCURSOR hIBeam = LoadCursor(NULL, IDC_IBEAM);
+
+        // Check if the current cursor matches the I-beam cursor
+        if (ci.hCursor == hIBeam) {
+            return true;
+        }
+    }
+#endif
+    return false;
 }
 
 bool EyeOverlay::UpdateDwellDetection(float x, float y, uint64_t timestamp)
@@ -1483,12 +1638,32 @@ bool EyeOverlay::UpdateDwellDetection(float x, float y, uint64_t timestamp)
                     // Exit zoom mode and recreate buttons
                     m_isZoomed = false;
                     m_dwellPosition = m_gazePosition;
-                    CreateButtonsAtCenter();
+
+                    // Check if we're on a text cursor - if so, show keyboard instead of buttons
+                    if (m_settings && m_settings->GetAutoShowKeyboard() &&
+                        IsTextCursorAtPosition(static_cast<int>(x), static_cast<int>(y))) {
+                        wxLogMessage("Text cursor detected - showing keyboard instead of buttons");
+                        // Save the dwell position for Submit to use
+                        m_screenshotPosition = wxPoint(static_cast<int>(x), static_cast<int>(y));
+                        ShowKeyboard(true);
+                    } else {
+                        CreateButtonsAtCenter();
+                    }
                 } else {
                     // Normal mode - create buttons at center
                     wxLogMessage("DWELL COMPLETE! Creating buttons at center...");
                     m_dwellPosition = m_gazePosition;
-                    CreateButtonsAtCenter();
+
+                    // Check if we're on a text cursor - if so, show keyboard instead of buttons
+                    if (m_settings && m_settings->GetAutoShowKeyboard() &&
+                        IsTextCursorAtPosition(static_cast<int>(x), static_cast<int>(y))) {
+                        wxLogMessage("Text cursor detected - showing keyboard instead of buttons");
+                        // Save the dwell position for Submit to use
+                        m_screenshotPosition = wxPoint(static_cast<int>(x), static_cast<int>(y));
+                        ShowKeyboard(true);
+                    } else {
+                        CreateButtonsAtCenter();
+                    }
                 }
 
                 return true;  // Visual state changed

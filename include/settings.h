@@ -29,6 +29,13 @@ public:
     int GetHoldTime() const { return m_holdTime; }
     void SetHoldTime(int ms) { m_holdTime = ms; }
 
+    int GetCursorDelay() const { return m_cursorDelay; }
+    void SetCursorDelay(int ms) { m_cursorDelay = ms; }
+
+    // Keyboard
+    bool GetAutoShowKeyboard() const { return m_autoShowKeyboard; }
+    void SetAutoShowKeyboard(bool enable) { m_autoShowKeyboard = enable; }
+
     // Zoom
     float GetZoomFactor() const { return m_zoomFactor; }
     void SetZoomFactor(float factor) { m_zoomFactor = factor; }
@@ -59,6 +66,10 @@ private:
     // timings/
     int m_waitTime;           // Dwell time before interaction (default: 800ms)
     int m_holdTime;           // Hold time for actions (default: 800ms)
+    int m_cursorDelay;        // Delay after SetCursorPos before click (default: 50ms)
+
+    // keyboard/
+    bool m_autoShowKeyboard;  // Auto-show keyboard on text cursor (default: true)
 
     // zoom/
     float m_zoomFactor;       // Magnification level (default: 3.0)

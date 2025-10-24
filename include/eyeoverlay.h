@@ -106,6 +106,7 @@ private:
     // Settings (from HeyEyeControl)
     int m_settingWaitTime;              // Default 800ms
     int m_settingHoldTime;              // Default 800ms
+    int m_settingCursorDelay;           // Default 50ms
     int m_settingsColorR;               // Default 102
     int m_settingsColorG;               // Default 204
     int m_settingsColorB;               // Default 255
@@ -121,6 +122,7 @@ private:
     void DrawKeyboardWithGC(wxGraphicsContext* gc, const wxColour& color);  // Draw keyboard on overlay
     void HandleKeyActivation(const wxString& keyLabel);  // Handle keyboard key press
     void EnsureOnTop();  // Bring window to topmost position (throttled)
+    bool IsTextCursorAtPosition(int x, int y);  // Check if cursor at position is I-beam (text edit cursor)
 
     // Mouse interaction methods (from HeyEyeControl)
     void Click();
@@ -130,6 +132,7 @@ private:
     void Drag();
     void Drop();
     void ToggleHide();
+    void SubmitText();  // Click and send keyboard input
 
 #ifdef __WXMSW__
     // Windows-specific: Window procedure to prevent focus activation

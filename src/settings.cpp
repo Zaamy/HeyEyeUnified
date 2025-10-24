@@ -5,6 +5,8 @@ Settings::Settings()
     : m_config(nullptr)
     , m_waitTime(800)
     , m_holdTime(800)
+    , m_cursorDelay(50)
+    , m_autoShowKeyboard(true)
     , m_zoomFactor(3.0f)
     , m_backgroundOpacity(170)
     , m_colorR(102)
@@ -54,6 +56,10 @@ void Settings::Load()
     // Timings
     m_waitTime = m_config->ReadLong(wxT("/timings/wait_time"), 800);
     m_holdTime = m_config->ReadLong(wxT("/timings/hold_time"), 800);
+    m_cursorDelay = m_config->ReadLong(wxT("/timings/cursor_delay"), 50);
+
+    // Keyboard
+    m_autoShowKeyboard = m_config->ReadBool(wxT("/keyboard/auto_show_on_text_cursor"), true);
 
     // Zoom
     m_zoomFactor = (float)m_config->ReadDouble(wxT("/zoom/zoom_factor"), 3.0);
@@ -66,8 +72,8 @@ void Settings::Load()
     m_selectionWidth = m_config->ReadLong(wxT("/rendering/selection_print_size_width"), 300);
     m_selectionHeight = m_config->ReadLong(wxT("/rendering/selection_print_size_height"), 300);
 
-    wxLogMessage("Settings loaded: wait=%dms, hold=%dms, zoom=%.1f, opacity=%d, color=(%d,%d,%d), selection=%dx%d",
-                 m_waitTime, m_holdTime, m_zoomFactor, m_backgroundOpacity,
+    wxLogMessage("Settings loaded: wait=%dms, hold=%dms, cursor_delay=%dms, zoom=%.1f, opacity=%d, color=(%d,%d,%d), selection=%dx%d",
+                 m_waitTime, m_holdTime, m_cursorDelay, m_zoomFactor, m_backgroundOpacity,
                  m_colorR, m_colorG, m_colorB, m_selectionWidth, m_selectionHeight);
 }
 
@@ -78,6 +84,10 @@ void Settings::Save()
     // Timings
     m_config->Write(wxT("/timings/wait_time"), (long)m_waitTime);
     m_config->Write(wxT("/timings/hold_time"), (long)m_holdTime);
+    m_config->Write(wxT("/timings/cursor_delay"), (long)m_cursorDelay);
+
+    // Keyboard
+    m_config->Write(wxT("/keyboard/auto_show_on_text_cursor"), m_autoShowKeyboard);
 
     // Zoom
     m_config->Write(wxT("/zoom/zoom_factor"), (double)m_zoomFactor);
