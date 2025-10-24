@@ -37,6 +37,7 @@ EyeOverlay::EyeOverlay(GazeTracker* gazeTracker, wxWindow *parent)
     , m_gazeTracker(gazeTracker)
     , m_keyboard(nullptr)
     , m_textEngine(nullptr)
+    , m_visible(true)
     , m_keyboardVisible(false)
     , m_gazePosition(0, 0)
     , m_lastGazeTimestamp(0)
@@ -51,6 +52,7 @@ EyeOverlay::EyeOverlay(GazeTracker* gazeTracker, wxWindow *parent)
     , m_isHiddenMode(false)
     , m_dwellProgress(0.0f)
     , m_dwellPosition(0, 0)
+    , m_lastBringToFrontTimestamp(0)
     , m_settingWaitTime(800)
     , m_settingHoldTime(800)
     , m_settingsColorR(102)
@@ -59,6 +61,9 @@ EyeOverlay::EyeOverlay(GazeTracker* gazeTracker, wxWindow *parent)
     , m_settingBackgroundOpacity(170)
     , m_settingSelectionWidth(300)
     , m_settingSelectionHeight(300)
+#ifdef __WXMSW__
+    , m_oldWndProc(nullptr)
+#endif
 {
     // Transparent background setup
     SetBackgroundStyle(wxBG_STYLE_PAINT);
@@ -66,9 +71,16 @@ EyeOverlay::EyeOverlay(GazeTracker* gazeTracker, wxWindow *parent)
 
 #ifdef __WXMSW__
     // Enable layered window for per-pixel alpha transparency
+    // Also add WS_EX_NOACTIVATE to prevent window from stealing focus (like HeyEyeControl Qt::WA_ShowWithoutActivating)
+    // Also add WS_EX_TRANSPARENT to let click pass throw the window
     HWND hwnd = (HWND)GetHWND();
     LONG exStyle = ::GetWindowLong(hwnd, GWL_EXSTYLE);
-    ::SetWindowLong(hwnd, GWL_EXSTYLE, exStyle | WS_EX_LAYERED);
+    ::SetWindowLong(hwnd, GWL_EXSTYLE, exStyle | WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT);
+
+    // Subclass the window to handle WM_MOUSEACTIVATE and prevent activation
+    SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)this);
+    m_oldWndProc = (WNDPROC)SetWindowLongPtr(hwnd, GWLP_WNDPROC, (LONG_PTR)WindowProc);
+
     // Note: We'll use UpdateLayeredWindow in OnPaint instead of SetLayeredWindowAttributes
 #endif
 
@@ -96,17 +108,31 @@ EyeOverlay::EyeOverlay(GazeTracker* gazeTracker, wxWindow *parent)
 
 EyeOverlay::~EyeOverlay() = default;
 
+#ifdef __WXMSW__
+// Windows message handler to prevent window from taking focus
+LRESULT CALLBACK EyeOverlay::WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    EyeOverlay* self = (EyeOverlay*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+
+    // Prevent window from being activated when clicked
+    if (msg == WM_MOUSEACTIVATE) {
+        return MA_NOACTIVATE;
+    }
+
+    // Call original window procedure
+    if (self && self->m_oldWndProc) {
+        return CallWindowProc(self->m_oldWndProc, hwnd, msg, wParam, lParam);
+    }
+    return DefWindowProc(hwnd, msg, wParam, lParam);
+}
+#endif
+
 void EyeOverlay::ShowKeyboard(bool show) {
     m_keyboardVisible = show;
     if (m_keyboard) {
         m_keyboard->Show(show);
     }
-    
-    // Update keyboard toggle button text
-    if (m_keyboardToggleButton) {
-        m_keyboardToggleButton->SetLabel(show ? wxT("Hide\nKeyboard") : wxT("Show\nKeyboard"));
-    }
-    
+
     Refresh();
 }
 
@@ -133,6 +159,34 @@ void EyeOverlay::OnPaint(wxPaintEvent& event)
     gc->SetCompositionMode(wxCOMPOSITION_CLEAR);
     gc->DrawRectangle(0, 0, clientSize.GetWidth(), clientSize.GetHeight());
     gc->SetCompositionMode(wxCOMPOSITION_OVER);
+
+    // Like HeyEyeControl: if not visible, just draw nothing (fully transparent)
+    if (!m_visible) {
+
+        delete gc;
+        mdc.SelectObject(wxNullBitmap);
+
+#ifdef __WXMSW__
+        // Update with fully transparent bitmap
+        HWND hwnd = (HWND)GetHWND();
+        HDC hdcScreen = ::GetDC(NULL);
+        HDC hdcMem = ::CreateCompatibleDC(hdcScreen);
+        HBITMAP hBitmap = (HBITMAP)bmp.GetHBITMAP();
+        HGDIOBJ oldBitmap = ::SelectObject(hdcMem, hBitmap);
+
+        SIZE size = { clientSize.GetWidth(), clientSize.GetHeight() };
+        POINT src = { 0, 0 };
+        POINT pos = { GetPosition().x, GetPosition().y };
+
+        BLENDFUNCTION blend = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
+        ::UpdateLayeredWindow(hwnd, hdcScreen, &pos, &size, hdcMem, &src, 0, &blend, ULW_ALPHA);
+
+        ::SelectObject(hdcMem, oldBitmap);
+        ::DeleteDC(hdcMem);
+        ::ReleaseDC(NULL, hdcScreen);
+#endif
+        return;
+    }
 
     wxColour buttonColor(m_settingsColorR, m_settingsColorG, m_settingsColorB);
 
@@ -218,11 +272,6 @@ void EyeOverlay::OnPaint(wxPaintEvent& event)
     // Draw visible buttons with GraphicsContext
     for (auto& button : m_visibleButtons) {
         DrawButtonWithGC(gc, button.get(), buttonColor);
-    }
-
-    // Keyboard toggle button
-    if (m_keyboardToggleButton) {
-        DrawButtonWithGC(gc, m_keyboardToggleButton.get(), buttonColor);
     }
 
     // Draw gaze cursor (from HeyEyeControl eyepanel.cpp:138-147)
@@ -417,17 +466,6 @@ void EyeOverlay::OnGazePositionUpdated(float x, float y, uint64_t timestamp)
     // Track if visual state changed (requires refresh)
     bool needsRefresh = false;
 
-    // Check if hovering over keyboard toggle button
-    if (m_keyboardToggleButton && m_keyboardToggleButton->IsPointInside(x, y)) {
-        if (m_keyboardToggleButton->UpdateProgress(deltaTime, m_settingHoldTime)) {
-            needsRefresh = true;
-        }
-    } else if (m_keyboardToggleButton) {
-        if (m_keyboardToggleButton->ResetProgress()) {
-            needsRefresh = true;
-        }
-    }
-
     // Check if hovering over any visible button
     bool onButton = false;
     for (auto& button : m_visibleButtons) {
@@ -484,6 +522,14 @@ void EyeOverlay::OnGazePositionUpdated(float x, float y, uint64_t timestamp)
         if (distanceMoved > 5.0f) {
             needsRefresh = true;
         }
+    }
+
+    // Periodically ensure window stays on top, but ONLY when no buttons are visible
+    // This keeps the dwell circle on top of context menus, but avoids interfering
+    // with button selection when the radial menu is open
+    if (m_visibleButtons.empty() && (timestamp - m_lastBringToFrontTimestamp) >= 100000) {  // 100ms
+        EnsureOnTop();
+        m_lastBringToFrontTimestamp = timestamp;
     }
 
     // Only refresh when visual state changed
@@ -600,24 +646,11 @@ void EyeOverlay::SetupUI()
     wxRect screenRect = display.GetGeometry();
     m_keyboard->SetSize(screenRect.GetWidth(), 400);
     m_keyboard->SetPosition(wxPoint(0, screenRect.GetHeight() - 400));
-
-    // Create keyboard toggle button in top-left corner
-    m_keyboardToggleButton = std::make_unique<CircularButton>(
-        wxT("Show\nKeyboard"),
-        wxPoint(80, 80)
-    );
-    m_keyboardToggleButton->OnActivated = [this]() {
-        ShowKeyboard(!m_keyboardVisible);
-        m_keyboardToggleButton->SetLabel(m_keyboardVisible ? wxT("Hide\nKeyboard") : wxT("Show\nKeyboard"));
-    };
 }
 
 void EyeOverlay::UpdateButtonPositions()
 {
-    // Update keyboard toggle button position
-    if (m_keyboardToggleButton) {
-        m_keyboardToggleButton->SetPosition(wxPoint(80, 80));
-    }
+    // No persistent buttons to update (keyboard button is now in the radial panel)
 }
 
 void EyeOverlay::CreateButtonsAtCenter()
@@ -628,6 +661,9 @@ void EyeOverlay::CreateButtonsAtCenter()
     m_positionHistory.clear();
     m_timestampHistory.clear();
 
+    // Always bring window to front when creating buttons
+    EnsureOnTop();
+
     // Only take screenshot if we don't have one yet (first time or after undo)
     if (!m_hasScreenshot) {
         // Save the screenshot position (where gaze was when dwell completed)
@@ -636,13 +672,9 @@ void EyeOverlay::CreateButtonsAtCenter()
             static_cast<int>(m_gazePosition.m_y)
         );
 
-        // Hide overlay before taking screenshot (to avoid capturing the gaze cursor)
-        Hide();
+        // Make overlay invisible before screenshot (like HeyEyeControl - just set flag and repaint)
+        m_visible = false;
         Refresh();
-        Update();  // Force immediate paint to clear overlay from screen
-
-        // Small delay to ensure window is fully hidden
-        wxMilliSleep(10);
 
         // Take screenshot of ENTIRE screen (like HeyEyeControl)
         wxScreenDC screenDC;
@@ -681,8 +713,8 @@ void EyeOverlay::CreateButtonsAtCenter()
         if (m_screenshotSourceRect.y + m_screenshotSourceRect.height > m_screenshot.GetHeight())
             m_screenshotSourceRect.y = m_screenshot.GetHeight() - m_screenshotSourceRect.height;
 
-        // Show overlay again
-        Show();
+        // Make overlay visible again
+        m_visible = true;
     }
 
     // Create buttons at center of screen
@@ -692,6 +724,17 @@ void EyeOverlay::CreateButtonsAtCenter()
 
     // Create buttons in radial pattern (matching HeyEyeControl layout)
     // All button positions are relative to window center
+
+    // Keyboard button (top-left)
+    auto btnKeyboard = std::make_unique<CircularButton>(
+        m_keyboardVisible ? wxT("Hide\nKeyboard") : wxT("Show\nKeyboard"),
+        wxPoint(centerX - 175, centerY - 175)
+    );
+    btnKeyboard->OnActivated = [this]() {
+        ShowKeyboard(!m_keyboardVisible);
+        ClearAllButtons();
+    };
+    m_visibleButtons.push_back(std::move(btnKeyboard));
 
     // Undo button (left)
     auto btnUndo = std::make_unique<CircularButton>(wxT("Undo"), wxPoint(centerX - 250, centerY));
@@ -790,44 +833,35 @@ void EyeOverlay::Click()
 {
     wxLogMessage("Click: Performing left click at position (%d, %d)", m_screenshotPosition.x, m_screenshotPosition.y);
 
-    // Hide overlay before clicking (from HeyEyeControl eyepanel.cpp:172-173)
+    m_isScrollMode = false;
+
+    m_visible = false;
     Hide();
     Refresh();
-    Update();  // Force immediate update to hide overlay from screen
-
-    // Small delay to ensure window is fully hidden (like before screenshot)
-    wxMilliSleep(10);
+    Update();
 
 #ifdef __WXMSW__
-    // Move cursor to the position where user dwelled (from HeyEyeControl eyepanel.cpp:175)
-    BOOL cursorMoved = SetCursorPos(m_screenshotPosition.x, m_screenshotPosition.y);
-    wxLogMessage("SetCursorPos result: %d (moved to %d, %d)", cursorMoved, m_screenshotPosition.x, m_screenshotPosition.y);
+    wxMilliSleep(10);
 
-    // Create INPUT structures for mouse down and up (from HeyEyeControl eyepanel.cpp:177-187)
+    // Move cursor and click
+    SetCursorPos(m_screenshotPosition.x, m_screenshotPosition.y);
+
+    wxMilliSleep(10);
+
     INPUT inputs[2];
     ZeroMemory(inputs, sizeof(inputs));
-
-    // Left mouse button down
     inputs[0].type = INPUT_MOUSE;
     inputs[0].mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
-    inputs[0].mi.dx = 0;
-    inputs[0].mi.dy = 0;
-
-    // Left mouse button up
     inputs[1].type = INPUT_MOUSE;
     inputs[1].mi.dwFlags = MOUSEEVENTF_LEFTUP;
-    inputs[1].mi.dx = 0;
-    inputs[1].mi.dy = 0;
-
-    // Send the input events
-    UINT eventsSent = SendInput(2, inputs, sizeof(INPUT));
-    wxLogMessage("SendInput result: %d events sent", eventsSent);
+    SendInput(2, inputs, sizeof(INPUT));
 #endif
 
-    // Show overlay again (from HeyEyeControl eyepanel.cpp:192)
-    Show();
+    m_visible = true;
 
-    // Clear all buttons and screenshot (from HeyEyeControl eyepanel.cpp:193)
+    // Ensure overlay stays on top after interaction
+    EnsureOnTop();
+
     ClearAllButtons();
 }
 
@@ -835,44 +869,45 @@ void EyeOverlay::ClickRight()
 {
     wxLogMessage("ClickRight: Performing right click at position (%d, %d)", m_screenshotPosition.x, m_screenshotPosition.y);
 
-    // Hide overlay before clicking (from HeyEyeControl eyepanel.cpp:200-202)
+    m_isScrollMode = false;
+
+    m_visible = false;
     Hide();
     Refresh();
-    Update();  // Force immediate update to hide overlay from screen
-
-    // Small delay to ensure window is fully hidden (like before screenshot)
-    wxMilliSleep(10);
+    Update();
 
 #ifdef __WXMSW__
-    // Move cursor to the position where user dwelled (from HeyEyeControl eyepanel.cpp:203)
-    BOOL cursorMoved = SetCursorPos(m_screenshotPosition.x, m_screenshotPosition.y);
-    wxLogMessage("SetCursorPos result: %d (moved to %d, %d)", cursorMoved, m_screenshotPosition.x, m_screenshotPosition.y);
+    wxMilliSleep(10);
 
-    // Create INPUT structures for mouse down and up (from HeyEyeControl eyepanel.cpp:205-215)
-    INPUT inputs[2];
-    ZeroMemory(inputs, sizeof(inputs));
+    // Move cursor and click
+    SetCursorPos(m_screenshotPosition.x, m_screenshotPosition.y);
+    
+    wxMilliSleep(10);
 
-    // Right mouse button down
-    inputs[0].type = INPUT_MOUSE;
-    inputs[0].mi.dwFlags = MOUSEEVENTF_RIGHTDOWN;
-    inputs[0].mi.dx = 0;
-    inputs[0].mi.dy = 0;
+    // do a left click at the location before
+    INPUT inputs_1[2];
+    ZeroMemory(inputs_1, sizeof(inputs_1));
+    inputs_1[0].type = INPUT_MOUSE;
+    inputs_1[0].mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+    inputs_1[1].type = INPUT_MOUSE;
+    inputs_1[1].mi.dwFlags = MOUSEEVENTF_LEFTUP;
 
-    // Right mouse button up
-    inputs[1].type = INPUT_MOUSE;
-    inputs[1].mi.dwFlags = MOUSEEVENTF_RIGHTUP;
-    inputs[1].mi.dx = 0;
-    inputs[1].mi.dy = 0;
-
-    // Send the input events
-    UINT eventsSent = SendInput(2, inputs, sizeof(INPUT));
-    wxLogMessage("SendInput result: %d events sent", eventsSent);
+    INPUT inputs_2[2];
+    ZeroMemory(inputs_2, sizeof(inputs_2));
+    inputs_2[0].type = INPUT_MOUSE;
+    inputs_2[0].mi.dwFlags = MOUSEEVENTF_RIGHTDOWN;
+    inputs_2[1].type = INPUT_MOUSE;
+    inputs_2[1].mi.dwFlags = MOUSEEVENTF_RIGHTUP;
+    SendInput(2, inputs_1, sizeof(INPUT));
+    wxMilliSleep(10);
+    SendInput(2, inputs_2, sizeof(INPUT));
 #endif
 
-    // Show overlay again (from HeyEyeControl eyepanel.cpp:220)
-    Show();
+    m_visible = true;
 
-    // Clear all buttons and screenshot (from HeyEyeControl eyepanel.cpp:221)
+    // After right-click, ensure overlay stays on top (context menu may have taken topmost position)
+    EnsureOnTop();
+
     ClearAllButtons();
 }
 
@@ -880,45 +915,39 @@ void EyeOverlay::DoubleClick()
 {
     wxLogMessage("DoubleClick: Performing double click at position (%d, %d)", m_screenshotPosition.x, m_screenshotPosition.y);
 
-    // Hide overlay before clicking (from HeyEyeControl eyepanel.cpp:229-231)
+    m_isScrollMode = false;
+
+    m_visible = false;
     Hide();
     Refresh();
-    Update();  // Force immediate update to hide overlay from screen
-
-    // Small delay to ensure window is fully hidden
-    wxMilliSleep(10);
+    Update();
 
 #ifdef __WXMSW__
-    // Move cursor to the position where user dwelled (from HeyEyeControl eyepanel.cpp:232)
-    BOOL cursorMoved = SetCursorPos(m_screenshotPosition.x, m_screenshotPosition.y);
-    wxLogMessage("SetCursorPos result: %d (moved to %d, %d)", cursorMoved, m_screenshotPosition.x, m_screenshotPosition.y);
+    wxMilliSleep(10);
 
-    // Create INPUT structures for mouse down and up (from HeyEyeControl eyepanel.cpp:234-243)
+    // Move cursor and double click
+    SetCursorPos(m_screenshotPosition.x, m_screenshotPosition.y);
+
+    wxMilliSleep(10);
+
     INPUT inputs[2];
     ZeroMemory(inputs, sizeof(inputs));
-
-    // Left mouse button down
     inputs[0].type = INPUT_MOUSE;
     inputs[0].mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
-    inputs[0].mi.dx = 0;
-    inputs[0].mi.dy = 0;
-
-    // Left mouse button up
     inputs[1].type = INPUT_MOUSE;
     inputs[1].mi.dwFlags = MOUSEEVENTF_LEFTUP;
-    inputs[1].mi.dx = 0;
-    inputs[1].mi.dy = 0;
 
-    // Send the input events TWICE for double click (from HeyEyeControl eyepanel.cpp:245-246)
-    UINT firstClick = SendInput(2, inputs, sizeof(INPUT));
-    UINT secondClick = SendInput(2, inputs, sizeof(INPUT));
-    wxLogMessage("SendInput result: %d + %d events sent (double click)", firstClick, secondClick);
+    // Send twice for double click
+    SendInput(2, inputs, sizeof(INPUT));
+    wxMilliSleep(50);
+    SendInput(2, inputs, sizeof(INPUT));
 #endif
 
-    // Show overlay again (from HeyEyeControl eyepanel.cpp:251)
-    Show();
+    m_visible = true;
 
-    // Clear all buttons and screenshot (from HeyEyeControl eyepanel.cpp:252)
+    // Ensure overlay stays on top after interaction
+    EnsureOnTop();
+
     ClearAllButtons();
 }
 
@@ -936,40 +965,34 @@ void EyeOverlay::Drag()
 {
     wxLogMessage("Drag: Starting drag at position (%d, %d)", m_screenshotPosition.x, m_screenshotPosition.y);
 
-    // Set drag mode and disable scroll mode (from HeyEyeControl eyepanel.cpp:276)
     m_isDragMode = true;
     m_isScrollMode = false;
 
-    // Hide overlay before dragging (from HeyEyeControl eyepanel.cpp:278-279)
+    m_visible = false;
     Hide();
     Refresh();
     Update();
 
-    // Small delay to ensure window is fully hidden
+#ifdef __WXMSW__
     wxMilliSleep(10);
 
-#ifdef __WXMSW__
-    // Move cursor to the position where user dwelled (from HeyEyeControl eyepanel.cpp:280)
-    BOOL cursorMoved = SetCursorPos(m_screenshotPosition.x, m_screenshotPosition.y);
-    wxLogMessage("SetCursorPos result: %d (moved to %d, %d)", cursorMoved, m_screenshotPosition.x, m_screenshotPosition.y);
+    // Move cursor and start drag (button DOWN only)
+    SetCursorPos(m_screenshotPosition.x, m_screenshotPosition.y);
+    
+    wxMilliSleep(10);
 
-    // Send mouse button DOWN only (not UP) - this starts the drag (from HeyEyeControl eyepanel.cpp:282-288)
     INPUT input;
     ZeroMemory(&input, sizeof(input));
-
     input.type = INPUT_MOUSE;
     input.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
-    input.mi.dx = 0;
-    input.mi.dy = 0;
-
-    UINT eventsSent = SendInput(1, &input, sizeof(INPUT));
-    wxLogMessage("Drag: SendInput result: %d events sent (button DOWN)", eventsSent);
+    SendInput(1, &input, sizeof(INPUT));
 #endif
 
-    // Show overlay again (from HeyEyeControl eyepanel.cpp:291)
-    Show();
+    m_visible = true;
 
-    // Clear all buttons (from HeyEyeControl eyepanel.cpp:292)
+    // Ensure overlay stays on top after interaction
+    EnsureOnTop();
+
     ClearAllButtons();
 }
 
@@ -977,39 +1000,33 @@ void EyeOverlay::Drop()
 {
     wxLogMessage("Drop: Releasing drag at position (%d, %d)", m_screenshotPosition.x, m_screenshotPosition.y);
 
-    // Exit drag mode (from HeyEyeControl eyepanel.cpp:299)
     m_isDragMode = false;
 
-    // Hide overlay before dropping (from HeyEyeControl eyepanel.cpp:300-301)
+    m_visible = false;
     Hide();
     Refresh();
     Update();
 
-    // Small delay to ensure window is fully hidden
+#ifdef __WXMSW__
     wxMilliSleep(10);
 
-#ifdef __WXMSW__
-    // Move cursor to the position where user dwelled (from HeyEyeControl eyepanel.cpp:302)
-    BOOL cursorMoved = SetCursorPos(m_screenshotPosition.x, m_screenshotPosition.y);
-    wxLogMessage("SetCursorPos result: %d (moved to %d, %d)", cursorMoved, m_screenshotPosition.x, m_screenshotPosition.y);
+    // Move cursor and release drag (button UP)
+    SetCursorPos(m_screenshotPosition.x, m_screenshotPosition.y);
 
-    // Send mouse button UP to release the drag (from HeyEyeControl eyepanel.cpp:304-310)
+    wxMilliSleep(10);
+
     INPUT input;
     ZeroMemory(&input, sizeof(input));
-
     input.type = INPUT_MOUSE;
     input.mi.dwFlags = MOUSEEVENTF_LEFTUP;
-    input.mi.dx = 0;
-    input.mi.dy = 0;
-
-    UINT eventsSent = SendInput(1, &input, sizeof(INPUT));
-    wxLogMessage("Drop: SendInput result: %d events sent (button UP)", eventsSent);
+    SendInput(1, &input, sizeof(INPUT));
 #endif
 
-    // Show overlay again (from HeyEyeControl eyepanel.cpp:313)
-    Show();
+    m_visible = true;
 
-    // Clear all buttons (from HeyEyeControl eyepanel.cpp:314)
+    // Ensure overlay stays on top after interaction
+    EnsureOnTop();
+
     ClearAllButtons();
 }
 
@@ -1025,6 +1042,18 @@ void EyeOverlay::ToggleHide()
 
     // Clear all buttons when toggling hide mode
     ClearAllButtons();
+}
+
+void EyeOverlay::EnsureOnTop()
+{
+#ifdef __WXMSW__
+    // Bring window to topmost Z-order position
+    // This is needed because context menus and other windows can take over the topmost position
+    // Similar to HeyEyeControl eyepanel.cpp:501-503
+    HWND hwnd = (HWND)GetHWND();
+    SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOACTIVATE);
+#endif
 }
 
 bool EyeOverlay::UpdateDwellDetection(float x, float y, uint64_t timestamp)

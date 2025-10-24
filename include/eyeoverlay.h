@@ -64,9 +64,9 @@ private:
 
     // Circular buttons (HeyEyeControl style)
     std::vector<std::unique_ptr<CircularButton>> m_visibleButtons;
-    std::unique_ptr<CircularButton> m_keyboardToggleButton; // Top-left corner button
 
     // Gaze tracking state
+    bool m_visible;  // Like HeyEyeControl - when false, window doesn't draw anything
     bool m_keyboardVisible;
     wxPoint2DDouble m_gazePosition;
     uint64_t m_lastGazeTimestamp;
@@ -89,6 +89,9 @@ private:
     float m_dwellProgress;  // 0.0 to 1.0
     wxPoint2DDouble m_dwellPosition;  // Position where buttons will appear
 
+    // Z-order management (keep overlay on top)
+    uint64_t m_lastBringToFrontTimestamp;  // Throttle SetWindowPos calls (only when no buttons visible)
+
     // Settings (from HeyEyeControl)
     int m_settingWaitTime;              // Default 800ms
     int m_settingHoldTime;              // Default 800ms
@@ -104,6 +107,7 @@ private:
     void ClearAllButtons();
     bool UpdateDwellDetection(float x, float y, uint64_t timestamp);  // Returns true if visual state changed
     void DrawButtonWithGC(wxGraphicsContext* gc, CircularButton* button, const wxColour& color);
+    void EnsureOnTop();  // Bring window to topmost position (throttled)
 
     // Mouse interaction methods (from HeyEyeControl)
     void Click();
@@ -113,6 +117,12 @@ private:
     void Drag();
     void Drop();
     void ToggleHide();
+
+#ifdef __WXMSW__
+    // Windows-specific: Window procedure to prevent focus activation
+    static LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+    WNDPROC m_oldWndProc;
+#endif
 
     wxDECLARE_EVENT_TABLE();
 };

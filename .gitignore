@@ -47,3 +47,8 @@ onnxruntime-*/
 tobii/
 espeak-ng/
 llama.cpp/
+# Others
+ARCHITECTURE.md
+CONVERSION_STATUS.md
+INTEGRATION_GUIDE.md
+WXWIDGETS_CONVERSION.md
