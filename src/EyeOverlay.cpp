@@ -4,7 +4,9 @@
 #include <wx/dcscreen.h>
 #include <wx/rawbmp.h>
 #include <wx/graphics.h>
-#include <cmath>  // For std::sqrt
+#include <cmath>   // For std::sqrt
+#include <map>     // For std::map
+#include <cctype>  // For toupper
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -129,9 +131,11 @@ LRESULT CALLBACK EyeOverlay::WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
 
 void EyeOverlay::ShowKeyboard(bool show) {
     m_keyboardVisible = show;
-    if (m_keyboard) {
-        m_keyboard->Show(show);
-    }
+
+    // Don't use the separate keyboard window - we'll draw it on the overlay instead
+    // if (m_keyboard) {
+    //     m_keyboard->Show(show);
+    // }
 
     Refresh();
 }
@@ -194,8 +198,8 @@ void EyeOverlay::OnPaint(wxPaintEvent& event)
 
     wxColour buttonColor(m_settingsColorR, m_settingsColorG, m_settingsColorB);
 
-    // Draw semi-transparent background if buttons are visible (provides proper background for text antialiasing)
-    if (m_hasScreenshot || !m_visibleButtons.empty()) {
+    // Draw semi-transparent background if buttons/keyboard are visible (provides proper background for text antialiasing)
+    if (m_hasScreenshot || !m_visibleButtons.empty() || m_keyboardVisible) {
         gc->SetBrush(wxBrush(wxColour(0, 0, 0, m_settingBackgroundOpacity)));
         gc->SetPen(*wxTRANSPARENT_PEN);
         gc->DrawRectangle(0, 0, clientSize.GetWidth(), clientSize.GetHeight());
@@ -277,15 +281,22 @@ void EyeOverlay::OnPaint(wxPaintEvent& event)
         }
     }
 
-    // Draw visible buttons with GraphicsContext
-    for (auto& button : m_visibleButtons) {
-        DrawButtonWithGC(gc, button.get(), buttonColor);
+    // Draw visible buttons with GraphicsContext (only if keyboard not visible)
+    if (!m_keyboardVisible) {
+        for (auto& button : m_visibleButtons) {
+            DrawButtonWithGC(gc, button.get(), buttonColor);
+        }
+    }
+
+    // Draw keyboard if visible (on the same layer as buttons)
+    if (m_keyboardVisible) {
+        DrawKeyboardWithGC(gc, buttonColor);
     }
 
     // Draw gaze cursor (from HeyEyeControl eyepanel.cpp:138-147)
     // When hidden, only show cursor if there's exactly 1 button (UnHide button)
-    // Show cursor at all times (even when buttons visible) for continuous feedback
-    if (!m_isHiddenMode || m_visibleButtons.size() == 1) {
+    // Show cursor at all times (even when buttons/keyboard visible) for continuous feedback
+    if (!m_isHiddenMode || m_visibleButtons.size() == 1 || m_keyboardVisible) {
         const int cursorSize = 80;
         int cursorX = static_cast<int>(m_gazePosition.m_x);
         int cursorY = static_cast<int>(m_gazePosition.m_y);
@@ -367,6 +378,217 @@ void EyeOverlay::DrawButtonWithGC(wxGraphicsContext* gc, CircularButton* button,
     }
 }
 
+// Helper function to draw keyboard using GraphicsContext (AZERTY layout)
+void EyeOverlay::DrawKeyboardWithGC(wxGraphicsContext* gc, const wxColour& color)
+{
+    if (!gc) return;
+
+    wxSize clientSize = GetClientSize();
+
+    // Save previous progress values before clearing
+    std::map<wxString, float> progressMap;
+    for (const auto& key : m_keyboardKeys) {
+        progressMap[key.label] = key.dwellProgress;
+    }
+
+    // Clear previous keyboard keys (will rebuild on each draw)
+    m_keyboardKeys.clear();
+
+    // Keyboard positioned at bottom-center of screen
+    int keyboardWidth = 1200;
+    int keyboardHeight = 400;
+    int startX = (clientSize.GetWidth() - keyboardWidth) / 2;
+    int startY = clientSize.GetHeight() - keyboardHeight - 50;
+
+    // Key size (matching HeyEyeTracker SIZE = 20.0f, scaled up for visibility)
+    const float SCALE = 4.0f;  // Scale factor for visibility
+    const float BASE_SIZE = 20.0f;  // HeyEyeTracker original SIZE
+    const float SIZE = BASE_SIZE * SCALE;  // Scaled SIZE for display
+
+    // AZERTY layout (from HeyEyeTracker ranking_features.cpp)
+    // Rows 1, 2, 3 from lines_down[] (we skip row 0 which has numbers/special chars)
+    const std::vector<std::string> layout = {
+        "azertyuiop",    // Row 1: azertyuiop^$ (skip ^$ for simplicity)
+        "qsdfghjklm",    // Row 2: qsdfghjklm* (skip * for simplicity)
+        "wxcvbn,;:!",    // Row 3: <wxcvbn,;:! (skip < for simplicity)
+    };
+
+    wxFont font(18, wxFONTFAMILY_DEFAULT, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD);
+    gc->SetFont(font, color);
+
+    // Draw letter keys using HeyEyeTracker position formula
+    for (size_t l = 0; l < layout.size(); ++l) {
+        const std::string& line = layout[l];
+        for (size_t i = 0; i < line.length(); ++i) {
+            char c = line[i];
+
+            // Calculate position using HeyEyeTracker formula
+            // In HeyEyeTracker: x = (i + fmod(0.5 * l, 1.5)) * BASE_SIZE
+            //                   y = 90.0 - BASE_SIZE * l
+            // Our layout array: layout[0] = row 1, layout[1] = row 2, layout[2] = row 3
+            int heyeyeRow = l + 1;  // Convert to HeyEyeTracker row number (1, 2, 3)
+
+            float keyX = startX + (i + fmod(0.5f * heyeyeRow, 1.5f)) * SIZE;
+
+            // Y coordinate: In HeyEyeTracker, y = 90.0 - BASE_SIZE * row
+            // Higher y = top, lower y = bottom
+            // On screen, higher Y = bottom, lower Y = top
+            // So we need to map: HeyEyeTracker y to screen offset
+            // Offset from reference (y=90.0) = 90.0 - y = BASE_SIZE * row
+            float keyY = startY + heyeyeRow * SIZE;
+
+            // Create label - uppercase for letters, as-is for punctuation
+            char displayChar = isalpha(c) ? toupper(c) : c;
+            wxString keyLabel = wxString::Format("%c", displayChar);
+
+            // Store key bounds for hit testing
+            int keySize = SIZE * 0.8f;  // Slightly smaller than spacing for visual separation
+            m_keyboardKeys.push_back(KeyboardKey(keyLabel, wxRect(keyX - keySize/2, keyY - keySize/2, keySize, keySize)));
+
+            // Restore previous progress if it exists
+            if (progressMap.count(keyLabel) > 0) {
+                m_keyboardKeys.back().dwellProgress = progressMap[keyLabel];
+            }
+
+            // Draw key rectangle
+            gc->SetPen(wxPen(color, 2));
+            gc->SetBrush(*wxTRANSPARENT_BRUSH);
+            gc->DrawRoundedRectangle(keyX - keySize/2, keyY - keySize/2, keySize, keySize, 10);
+
+            // Draw key label
+            double textWidth, textHeight;
+            gc->GetTextExtent(keyLabel, &textWidth, &textHeight);
+            gc->DrawText(keyLabel, keyX - textWidth/2, keyY - textHeight/2);
+
+            // Draw progress arc if this key has dwell progress
+            float progress = m_keyboardKeys.back().dwellProgress;
+            if (progress > 0.0f) {
+                gc->SetPen(wxPen(color, 6));
+                wxGraphicsPath path = gc->CreatePath();
+                path.AddArc(keyX, keyY, keySize/2 - 5, 0, progress * 2.0 * M_PI, true);
+                gc->StrokePath(path);
+            }
+        }
+    }
+
+    // Add space bar (at position matching HeyEyeTracker)
+    // Space: keyboard_coord[' '] = std::make_pair(100.0f, 90.0f - BASE_SIZE * 4);
+    // HeyEyeTracker y = 10.0, offset from top = 90.0 - 10.0 = 80.0
+    float spaceX = startX + 100.0f * SCALE;
+    float spaceY = startY + 4 * SIZE;  // 4 rows down from reference
+    int spaceWidth = SIZE * 3;  // Make space bar wider
+    int spaceHeight = SIZE * 0.8f;
+
+    m_keyboardKeys.push_back(KeyboardKey(wxT("SPACE"), wxRect(spaceX - spaceWidth/2, spaceY - spaceHeight/2, spaceWidth, spaceHeight)));
+    if (progressMap.count(wxT("SPACE")) > 0) {
+        m_keyboardKeys.back().dwellProgress = progressMap[wxT("SPACE")];
+    }
+
+    gc->SetPen(wxPen(color, 2));
+    gc->SetBrush(*wxTRANSPARENT_BRUSH);
+    gc->DrawRoundedRectangle(spaceX - spaceWidth/2, spaceY - spaceHeight/2, spaceWidth, spaceHeight, 10);
+
+    double textWidth, textHeight;
+    gc->GetTextExtent(wxT("SPACE"), &textWidth, &textHeight);
+    gc->DrawText(wxT("SPACE"), spaceX - textWidth/2, spaceY - textHeight/2);
+
+    float spaceProgress = m_keyboardKeys.back().dwellProgress;
+    if (spaceProgress > 0.0f) {
+        gc->SetPen(wxPen(color, 6));
+        wxGraphicsPath path = gc->CreatePath();
+        path.AddArc(spaceX, spaceY, spaceHeight/2 - 5, 0, spaceProgress * 2.0 * M_PI, true);
+        gc->StrokePath(path);
+    }
+
+    // Add backspace key (right side, aligned with row 1)
+    // Row 1 offset = 1 * SIZE
+    float backspaceX = startX + SIZE * 12;
+    float backspaceY = startY + 1 * SIZE;  // Aligned with row 1 (azertyuiop)
+    int backspaceSize = SIZE * 0.8f;
+
+    m_keyboardKeys.push_back(KeyboardKey(wxT("⌫"), wxRect(backspaceX - backspaceSize/2, backspaceY - backspaceSize/2, backspaceSize, backspaceSize)));
+    if (progressMap.count(wxT("⌫")) > 0) {
+        m_keyboardKeys.back().dwellProgress = progressMap[wxT("⌫")];
+    }
+
+    gc->SetPen(wxPen(color, 2));
+    gc->SetBrush(*wxTRANSPARENT_BRUSH);
+    gc->DrawRoundedRectangle(backspaceX - backspaceSize/2, backspaceY - backspaceSize/2, backspaceSize, backspaceSize, 10);
+
+    gc->GetTextExtent(wxT("⌫"), &textWidth, &textHeight);
+    gc->DrawText(wxT("⌫"), backspaceX - textWidth/2, backspaceY - textHeight/2);
+
+    float backspaceProgress = m_keyboardKeys.back().dwellProgress;
+    if (backspaceProgress > 0.0f) {
+        gc->SetPen(wxPen(color, 6));
+        wxGraphicsPath path = gc->CreatePath();
+        path.AddArc(backspaceX, backspaceY, backspaceSize/2 - 5, 0, backspaceProgress * 2.0 * M_PI, true);
+        gc->StrokePath(path);
+    }
+
+    // Draw Undo button (top-left corner)
+    int undoX = 50;
+    int undoY = 50;
+    int undoSize = 100;
+
+    gc->SetPen(wxPen(color, 2));
+    gc->SetBrush(*wxTRANSPARENT_BRUSH);
+    gc->DrawEllipse(undoX - undoSize/2, undoY - undoSize/2, undoSize, undoSize);
+
+    wxFont undoFont(12, wxFONTFAMILY_DEFAULT, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD);
+    gc->SetFont(undoFont, color);
+    gc->GetTextExtent(wxT("Undo"), &textWidth, &textHeight);
+    gc->DrawText(wxT("Undo"), undoX - textWidth/2, undoY - textHeight/2);
+
+    // Store Undo button as a special key
+    m_keyboardKeys.push_back(KeyboardKey(wxT("UNDO"), wxRect(undoX - undoSize/2, undoY - undoSize/2, undoSize, undoSize)));
+
+    // Restore previous progress for Undo button if it exists
+    if (progressMap.count(wxT("UNDO")) > 0) {
+        m_keyboardKeys.back().dwellProgress = progressMap[wxT("UNDO")];
+    }
+
+    // Draw progress arc for Undo button if needed
+    float undoProgress = m_keyboardKeys.back().dwellProgress;
+    if (undoProgress > 0.0f) {
+        gc->SetPen(wxPen(color, 6));
+        wxGraphicsPath path = gc->CreatePath();
+        path.AddArc(undoX, undoY, undoSize/2 - 5, 0, undoProgress * 2.0 * M_PI, true);
+        gc->StrokePath(path);
+    }
+}
+
+void EyeOverlay::HandleKeyActivation(const wxString& keyLabel)
+{
+    wxLogMessage("Key activated: %s", keyLabel);
+
+    if (keyLabel == wxT("UNDO")) {
+        // Undo button - hide keyboard and return to normal overlay
+        ShowKeyboard(false);
+        m_keyboardKeys.clear();
+    } else if (keyLabel == wxT("SPACE")) {
+        // Space key
+        if (m_textEngine) {
+            m_textEngine->AppendCharacter(wxT(' '));
+        }
+    } else if (keyLabel == wxT("⌫")) {
+        // Backspace key
+        if (m_textEngine) {
+            m_textEngine->DeleteLastWord();
+        }
+    } else if (keyLabel.length() == 1) {
+        // Regular letter/punctuation key
+        if (m_textEngine) {
+            // Convert back to lowercase for letters (display is uppercase, but input is lowercase)
+            wxChar c = keyLabel[0];
+            if (isupper(c)) {
+                c = tolower(c);
+            }
+            m_textEngine->AppendCharacter(c);
+        }
+    }
+}
+
 void EyeOverlay::OnEraseBackground(wxEraseEvent& event)
 {
     // With wxAutoBufferedPaintDC, we handle clearing in OnPaint
@@ -433,10 +655,48 @@ void EyeOverlay::OnGazePositionUpdated(float x, float y, uint64_t timestamp)
     }
     m_previousTimestamp = timestamp;
 
-    // Update keyboard with gaze position if visible
-    if (m_keyboard && m_keyboardVisible) {
-        m_keyboard->UpdateGazePosition(x, y);
-        return;
+    // Handle keyboard key tracking if visible
+    if (m_keyboardVisible) {
+        bool needsRefresh = false;
+        bool onKey = false;
+
+        // Find which key (if any) is being hovered
+        for (auto& key : m_keyboardKeys) {
+            if (key.bounds.Contains(static_cast<int>(x), static_cast<int>(y))) {
+                // Update progress
+                float oldProgress = key.dwellProgress;
+                key.dwellProgress += deltaTime / (m_settingHoldTime * 1000.0f);
+
+                if (key.dwellProgress >= 1.0f) {
+                    // Key activated!
+                    key.dwellProgress = 0.0f;
+                    HandleKeyActivation(key.label);
+                    needsRefresh = true;
+                } else if (static_cast<int>(key.dwellProgress * 20) != static_cast<int>(oldProgress * 20)) {
+                    needsRefresh = true;
+                }
+                onKey = true;
+            } else {
+                // Reset progress if not hovering
+                if (key.dwellProgress > 0.0f) {
+                    key.dwellProgress = 0.0f;
+                    needsRefresh = true;
+                }
+            }
+        }
+
+        // Always refresh when gaze cursor moves significantly (>5 pixels)
+        float dx = m_gazePosition.m_x - oldPosition.m_x;
+        float dy = m_gazePosition.m_y - oldPosition.m_y;
+        float distanceMoved = std::sqrt(dx * dx + dy * dy);
+        if (distanceMoved > 5.0f) {
+            needsRefresh = true;
+        }
+
+        if (needsRefresh) {
+            Refresh(false);
+        }
+        return;  // Don't process button logic when keyboard is visible
     }
 
     // Handle scroll mode (from HeyEyeControl eyepanel.cpp:383-410)
@@ -1123,6 +1383,32 @@ bool EyeOverlay::UpdateDwellDetection(float x, float y, uint64_t timestamp)
                     m_screenshotPosition.y = sourceRectCenterY + static_cast<int>((y - centerY) / m_settingZoomFactor);
 
                     wxLogMessage("Zoom refinement: new position (%d, %d)", m_screenshotPosition.x, m_screenshotPosition.y);
+
+                    // Recalculate screenshot source rect to center on new position
+                    // Try to center the crosshair, but clamp to screen edges
+                    int intendedX = m_screenshotPosition.x - m_settingSelectionWidth / 2;
+                    int intendedY = m_screenshotPosition.y - m_settingSelectionHeight / 2;
+
+                    m_screenshotSourceRect = wxRect(
+                        intendedX,
+                        intendedY,
+                        m_settingSelectionWidth,
+                        m_settingSelectionHeight
+                    );
+
+                    // Clamp to screen bounds
+                    if (m_screenshotSourceRect.x < 0)
+                        m_screenshotSourceRect.x = 0;
+                    if (m_screenshotSourceRect.y < 0)
+                        m_screenshotSourceRect.y = 0;
+                    if (m_screenshotSourceRect.x + m_screenshotSourceRect.width > m_screenshot.GetWidth())
+                        m_screenshotSourceRect.x = m_screenshot.GetWidth() - m_screenshotSourceRect.width;
+                    if (m_screenshotSourceRect.y + m_screenshotSourceRect.height > m_screenshot.GetHeight())
+                        m_screenshotSourceRect.y = m_screenshot.GetHeight() - m_screenshotSourceRect.height;
+
+                    wxLogMessage("Zoom refinement: updated sourceRect to (%d, %d, %d, %d)",
+                                m_screenshotSourceRect.x, m_screenshotSourceRect.y,
+                                m_screenshotSourceRect.width, m_screenshotSourceRect.height);
 
                     // Exit zoom mode and recreate buttons
                     m_isZoomed = false;

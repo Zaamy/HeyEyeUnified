@@ -65,6 +65,15 @@ private:
     // Circular buttons (HeyEyeControl style)
     std::vector<std::unique_ptr<CircularButton>> m_visibleButtons;
 
+    // Keyboard key tracking
+    struct KeyboardKey {
+        wxString label;
+        wxRect bounds;
+        float dwellProgress;  // 0.0 to 1.0
+        KeyboardKey(const wxString& lbl, const wxRect& r) : label(lbl), bounds(r), dwellProgress(0.0f) {}
+    };
+    std::vector<KeyboardKey> m_keyboardKeys;
+
     // Gaze tracking state
     bool m_visible;  // Like HeyEyeControl - when false, window doesn't draw anything
     bool m_keyboardVisible;
@@ -107,6 +116,8 @@ private:
     void ClearAllButtons();
     bool UpdateDwellDetection(float x, float y, uint64_t timestamp);  // Returns true if visual state changed
     void DrawButtonWithGC(wxGraphicsContext* gc, CircularButton* button, const wxColour& color);
+    void DrawKeyboardWithGC(wxGraphicsContext* gc, const wxColour& color);  // Draw keyboard on overlay
+    void HandleKeyActivation(const wxString& keyLabel);  // Handle keyboard key press
     void EnsureOnTop();  // Bring window to topmost position (throttled)
 
     // Mouse interaction methods (from HeyEyeControl)
