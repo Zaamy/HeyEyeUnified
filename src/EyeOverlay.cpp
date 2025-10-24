@@ -75,7 +75,7 @@ EyeOverlay::EyeOverlay(GazeTracker* gazeTracker, wxWindow *parent)
     // Also add WS_EX_TRANSPARENT to let click pass throw the window
     HWND hwnd = (HWND)GetHWND();
     LONG exStyle = ::GetWindowLong(hwnd, GWL_EXSTYLE);
-    ::SetWindowLong(hwnd, GWL_EXSTYLE, exStyle | WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT);
+    ::SetWindowLong(hwnd, GWL_EXSTYLE, exStyle | WS_EX_LAYERED | WS_EX_NOACTIVATE); // | WS_EX_TRANSPARENT
 
     // Subclass the window to handle WM_MOUSEACTIVATE and prevent activation
     SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)this);
@@ -276,22 +276,21 @@ void EyeOverlay::OnPaint(wxPaintEvent& event)
 
     // Draw gaze cursor (from HeyEyeControl eyepanel.cpp:138-147)
     // When hidden, only show cursor if there's exactly 1 button (UnHide button)
+    // Show cursor at all times (even when buttons visible) for continuous feedback
     if (!m_isHiddenMode || m_visibleButtons.size() == 1) {
-        if (m_visibleButtons.empty()) {
-            const int cursorSize = 80;
-            int cursorX = static_cast<int>(m_gazePosition.m_x);
-            int cursorY = static_cast<int>(m_gazePosition.m_y);
+        const int cursorSize = 80;
+        int cursorX = static_cast<int>(m_gazePosition.m_x);
+        int cursorY = static_cast<int>(m_gazePosition.m_y);
 
-            gc->SetPen(wxPen(buttonColor, 1));
-            gc->SetBrush(*wxTRANSPARENT_BRUSH);
-            gc->DrawEllipse(cursorX - cursorSize/2, cursorY - cursorSize/2, cursorSize, cursorSize);
+        gc->SetPen(wxPen(buttonColor, 1));
+        gc->SetBrush(*wxTRANSPARENT_BRUSH);
+        gc->DrawEllipse(cursorX - cursorSize/2, cursorY - cursorSize/2, cursorSize, cursorSize);
 
-            if (m_dwellProgress > 0.0f) {
-                gc->SetPen(wxPen(buttonColor, 5));
-                wxGraphicsPath path = gc->CreatePath();
-                path.AddArc(cursorX, cursorY, cursorSize/2, 0, m_dwellProgress * 2.0 * M_PI, true);
-                gc->StrokePath(path);
-            }
+        if (m_dwellProgress > 0.0f) {
+            gc->SetPen(wxPen(buttonColor, 5));
+            wxGraphicsPath path = gc->CreatePath();
+            path.AddArc(cursorX, cursorY, cursorSize/2, 0, m_dwellProgress * 2.0 * M_PI, true);
+            gc->StrokePath(path);
         }
     }
 
@@ -514,14 +513,15 @@ void EyeOverlay::OnGazePositionUpdated(float x, float y, uint64_t timestamp)
         if (UpdateDwellDetection(x, y, timestamp)) {
             needsRefresh = true;
         }
+    }
 
-        // Refresh when gaze cursor moves significantly (>5 pixels to reduce 120Hz to ~20-30Hz)
-        float dx = m_gazePosition.m_x - oldPosition.m_x;
-        float dy = m_gazePosition.m_y - oldPosition.m_y;
-        float distanceMoved = std::sqrt(dx * dx + dy * dy);
-        if (distanceMoved > 5.0f) {
-            needsRefresh = true;
-        }
+    // Always refresh when gaze cursor moves significantly (>5 pixels to reduce 120Hz to ~20-30Hz)
+    // This ensures the cursor is always visible and tracks the gaze position
+    float dx = m_gazePosition.m_x - oldPosition.m_x;
+    float dy = m_gazePosition.m_y - oldPosition.m_y;
+    float distanceMoved = std::sqrt(dx * dx + dy * dy);
+    if (distanceMoved > 5.0f) {
+        needsRefresh = true;
     }
 
     // Periodically ensure window stays on top, but ONLY when no buttons are visible
