@@ -418,6 +418,35 @@ void EyeOverlay::DrawKeyboardWithGC(wxGraphicsContext* gc, const wxColour& color
 
     wxSize clientSize = GetClientSize();
 
+    // Draw text display area at top center
+    int textBoxWidth = 800;
+    int textBoxHeight = 80;
+    int textBoxX = (clientSize.GetWidth() - textBoxWidth) / 2;
+    int textBoxY = 50;  // Position at top center
+
+    // Draw white background box
+    gc->SetBrush(wxBrush(wxColour(255, 255, 255, 230)));  // Semi-transparent white
+    gc->SetPen(wxPen(color, 2));
+    gc->DrawRoundedRectangle(textBoxX, textBoxY, textBoxWidth, textBoxHeight, 10);
+
+    // Draw the current text inside the box
+    if (m_textEngine) {
+        wxString currentText = m_textEngine->GetCurrentText();
+        if (currentText.IsEmpty()) {
+            currentText = wxT("Type here...");  // Placeholder text
+        }
+
+        wxFont textFont(20, wxFONTFAMILY_DEFAULT, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL);
+        gc->SetFont(textFont, wxColour(0, 0, 0));  // Black text
+
+        double textWidth, textHeight;
+        gc->GetTextExtent(currentText, &textWidth, &textHeight);
+
+        // Center text vertically, align left with some padding
+        int textPadding = 20;
+        gc->DrawText(currentText, textBoxX + textPadding, textBoxY + (textBoxHeight - textHeight) / 2);
+    }
+
     // Save previous progress values before clearing
     std::map<wxString, float> progressMap;
     for (const auto& key : m_keyboardKeys) {
@@ -1161,7 +1190,7 @@ void EyeOverlay::Click()
     // Move cursor and click
     SetCursorPos(m_screenshotPosition.x, m_screenshotPosition.y);
 
-    wxMilliSleep(10);
+    wxMilliSleep(50);
 
     INPUT inputs[2];
     ZeroMemory(inputs, sizeof(inputs));
@@ -1197,7 +1226,7 @@ void EyeOverlay::ClickRight()
     // Move cursor and click
     SetCursorPos(m_screenshotPosition.x, m_screenshotPosition.y);
     
-    wxMilliSleep(10);
+    wxMilliSleep(50);
 
     // do a left click at the location before
     INPUT inputs_1[2];
@@ -1243,7 +1272,7 @@ void EyeOverlay::DoubleClick()
     // Move cursor and double click
     SetCursorPos(m_screenshotPosition.x, m_screenshotPosition.y);
 
-    wxMilliSleep(10);
+    wxMilliSleep(50);
 
     INPUT inputs[2];
     ZeroMemory(inputs, sizeof(inputs));
@@ -1294,7 +1323,7 @@ void EyeOverlay::Drag()
     // Move cursor and start drag (button DOWN only)
     SetCursorPos(m_screenshotPosition.x, m_screenshotPosition.y);
     
-    wxMilliSleep(10);
+    wxMilliSleep(50);
 
     INPUT input;
     ZeroMemory(&input, sizeof(input));
@@ -1328,7 +1357,7 @@ void EyeOverlay::Drop()
     // Move cursor and release drag (button UP)
     SetCursorPos(m_screenshotPosition.x, m_screenshotPosition.y);
 
-    wxMilliSleep(10);
+    wxMilliSleep(50);
 
     INPUT input;
     ZeroMemory(&input, sizeof(input));
