@@ -55,7 +55,6 @@ EyeOverlay::EyeOverlay(GazeTracker* gazeTracker, wxWindow *parent)
     , m_isDragMode(false)
     , m_isHiddenMode(true)  // Start in hidden mode by default
     , m_dwellProgress(0.0f)
-    , m_dwellPosition(0, 0)
     , m_lastBringToFrontTimestamp(0)
     , m_settingWaitTime(800)
     , m_settingHoldTime(800)
@@ -592,8 +591,8 @@ void EyeOverlay::DrawKeyboardWithGC(wxGraphicsContext* gc, const wxColour& color
     }
 
     // Draw Undo button (top-left corner)
-    int undoX = 50;
-    int undoY = 50;
+    int undoX = clientSize.GetWidth()/2 - 300;
+    int undoY = 150;
     int undoSize = 100;
 
     gc->SetPen(wxPen(color, 2));
@@ -609,8 +608,8 @@ void EyeOverlay::DrawKeyboardWithGC(wxGraphicsContext* gc, const wxColour& color
     m_keyboardKeys.push_back(KeyboardKey(wxT("UNDO"), wxRect(undoX - undoSize/2, undoY - undoSize/2, undoSize, undoSize)));
 
     // Draw Submit button (without RETURN) - top-right corner
-    int submitX = clientSize.GetWidth() - 80;
-    int submitY = 80;
+    int submitX = clientSize.GetWidth()/2 + 300;
+    int submitY = 180;
     int submitSize = 100;
 
     gc->SetPen(wxPen(color, 2));
@@ -625,8 +624,8 @@ void EyeOverlay::DrawKeyboardWithGC(wxGraphicsContext* gc, const wxColour& color
     m_keyboardKeys.push_back(KeyboardKey(wxT("SUBMIT"), wxRect(submitX - submitSize/2, submitY - submitSize/2, submitSize, submitSize)));
 
     // Draw Submit w/ RETURN button - below the first submit button
-    int submitReturnX = clientSize.GetWidth() - 80;
-    int submitReturnY = 220;
+    int submitReturnX = clientSize.GetWidth()/2 + 150;
+    int submitReturnY = 320;
     int submitReturnSize = 100;
 
     gc->SetPen(wxPen(color, 2));
@@ -1083,6 +1082,9 @@ void EyeOverlay::CreateButtonsAtCenter()
         m_visible = false;
         Hide();
         Refresh();
+        Update();  // to be sure the circle won't be present on the screenshot
+
+        wxMilliSleep(50);  // to be sure the overlay has disappear
 
         // Take screenshot of ENTIRE screen (like HeyEyeControl)
         wxScreenDC screenDC;
@@ -1695,6 +1697,9 @@ bool EyeOverlay::UpdateDwellDetection(float x, float y, uint64_t timestamp)
         bool isStable = ((maxX - minX) < 30) && ((maxY - minY) < 30);
 
         if (isStable && m_timestampHistory.size() > 2) {
+            // Move cursor
+            SetCursorPos(m_gazePosition.m_x, m_gazePosition.m_y);
+
             // Update progress
             float oldProgress = m_dwellProgress;
             float deltaT = static_cast<float>(m_timestampHistory.back() - m_timestampHistory[m_timestampHistory.size() - 2]);
@@ -1751,7 +1756,6 @@ bool EyeOverlay::UpdateDwellDetection(float x, float y, uint64_t timestamp)
 
                     // Exit zoom mode and recreate buttons
                     m_isZoomed = false;
-                    m_dwellPosition = m_gazePosition;
 
                     // Check if we're on a text cursor - if so, show keyboard instead of buttons
                     if (m_settings && m_settings->GetAutoShowKeyboard() &&
@@ -1766,7 +1770,6 @@ bool EyeOverlay::UpdateDwellDetection(float x, float y, uint64_t timestamp)
                 } else {
                     // Normal mode - create buttons at center
                     wxLogMessage("DWELL COMPLETE! Creating buttons at center...");
-                    m_dwellPosition = m_gazePosition;
 
                     // Check if we're on a text cursor - if so, show keyboard instead of buttons
                     if (m_settings && m_settings->GetAutoShowKeyboard() &&
@@ -1793,5 +1796,5 @@ bool EyeOverlay::UpdateDwellDetection(float x, float y, uint64_t timestamp)
         }
     }
 
-    return false;  // No visual change
+    return true;  // Visual change because in the 
 }

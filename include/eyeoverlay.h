@@ -98,7 +98,6 @@ private:
     std::vector<wxPoint2DDouble> m_positionHistory;
     std::vector<uint64_t> m_timestampHistory;
     float m_dwellProgress;  // 0.0 to 1.0
-    wxPoint2DDouble m_dwellPosition;  // Position where buttons will appear
 
     // Z-order management (keep overlay on top)
     uint64_t m_lastBringToFrontTimestamp;  // Throttle SetWindowPos calls (only when no buttons visible)
