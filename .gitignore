@@ -23,6 +23,7 @@ Release/
 *.suo
 *.user
 .vs/
+.vscode
 
 # ML assets (large files, store separately)
 assets/*.onnx
