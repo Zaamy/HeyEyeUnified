@@ -15,7 +15,7 @@ REM Configure with CMake
 echo [1/3] Configuring with CMake...
 cmake .. -G "Visual Studio 16 2019" -A x64 ^
     -DCMAKE_TOOLCHAIN_FILE=D:/Deps/vcpkg/scripts/buildsystems/vcpkg.cmake ^
-    -DUSE_TOBII=OFF ^
+    -DUSE_TOBII=ON ^
     -DUSE_ONNX=OFF ^
     -DUSE_FAISS=OFF ^
     -DUSE_KENLM=OFF ^

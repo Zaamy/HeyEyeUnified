@@ -167,26 +167,43 @@ if(USE_LIGHTGBM)
 endif()
 
 # Tobii Stream Engine SDK
-option(USE_TOBII "Enable Tobii eye tracking" OFF)
+option(USE_TOBII "Enable Tobii eye tracking" ON)
 if(USE_TOBII)
+    # Use local tobii directory in HeyEyeUnified project
+    # find_path looks for the parent dir that contains tobii/tobii.h
     find_path(TOBII_INCLUDE_DIR tobii/tobii.h
         PATHS
-            ${PROJECT_SOURCE_DIR}/../to_combined/HeyEyeTracker/tobii
-            ${PROJECT_SOURCE_DIR}/../to_combined/HeyEyeControl/tobii
+            ${PROJECT_SOURCE_DIR}
+        NO_DEFAULT_PATH
     )
+    # find_library looks for the actual .lib file in tobii/
     find_library(TOBII_LIBRARY
         NAMES tobii_stream_engine
         PATHS
-            ${PROJECT_SOURCE_DIR}/../to_combined/HeyEyeTracker/tobii
-            ${PROJECT_SOURCE_DIR}/../to_combined/HeyEyeControl/tobii
+            ${PROJECT_SOURCE_DIR}/tobii
+        NO_DEFAULT_PATH
     )
     if(TOBII_INCLUDE_DIR AND TOBII_LIBRARY)
         target_include_directories(${PROJECT_NAME} PRIVATE ${TOBII_INCLUDE_DIR})
         target_link_libraries(${PROJECT_NAME} PRIVATE ${TOBII_LIBRARY})
         target_compile_definitions(${PROJECT_NAME} PRIVATE USE_TOBII)
-        message(STATUS "Tobii SDK found: ${TOBII_LIBRARY}")
+        message(STATUS "Tobii SDK found at: ${TOBII_INCLUDE_DIR}")
+        message(STATUS "Tobii library: ${TOBII_LIBRARY}")
+
+        # Copy DLL to output directory on Windows
+        if(WIN32)
+            add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${PROJECT_SOURCE_DIR}/tobii/tobii_stream_engine.dll"
+                    $<TARGET_FILE_DIR:${PROJECT_NAME}>
+                COMMENT "Copying Tobii DLL to output directory"
+            )
+        endif()
     else()
         message(WARNING "Tobii SDK not found - running in manual mode")
+        message(STATUS "  Searched include path: ${PROJECT_SOURCE_DIR}/tobii")
+        message(STATUS "  TOBII_INCLUDE_DIR: ${TOBII_INCLUDE_DIR}")
+        message(STATUS "  TOBII_LIBRARY: ${TOBII_LIBRARY}")
     endif()
 endif()
 

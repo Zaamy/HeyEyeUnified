@@ -1259,7 +1259,7 @@ void EyeOverlay::Click()
     Update();
 
 #ifdef __WXMSW__
-    wxMilliSleep(100);
+    wxMilliSleep(50);
 
     // Move cursor and click
     SetCursorPos(m_screenshotPosition.x, m_screenshotPosition.y);
@@ -1295,7 +1295,7 @@ void EyeOverlay::ClickRight()
     Update();
 
 #ifdef __WXMSW__
-    wxMilliSleep(100);
+    wxMilliSleep(50);
 
     // Move cursor and click
     SetCursorPos(m_screenshotPosition.x, m_screenshotPosition.y);
@@ -1317,7 +1317,7 @@ void EyeOverlay::ClickRight()
     inputs_2[1].type = INPUT_MOUSE;
     inputs_2[1].mi.dwFlags = MOUSEEVENTF_RIGHTUP;
     SendInput(2, inputs_1, sizeof(INPUT));
-    wxMilliSleep(100);
+    wxMilliSleep(10);
     SendInput(2, inputs_2, sizeof(INPUT));
 #endif
 
@@ -1341,7 +1341,7 @@ void EyeOverlay::DoubleClick()
     Update();
 
 #ifdef __WXMSW__
-    wxMilliSleep(100);
+    wxMilliSleep(50);
 
     // Move cursor and double click
     SetCursorPos(m_screenshotPosition.x, m_screenshotPosition.y);
@@ -1392,7 +1392,7 @@ void EyeOverlay::Drag()
     Update();
 
 #ifdef __WXMSW__
-    wxMilliSleep(100);
+    wxMilliSleep(50);
 
     // Move cursor and start drag (button DOWN only)
     SetCursorPos(m_screenshotPosition.x, m_screenshotPosition.y);
@@ -1426,7 +1426,7 @@ void EyeOverlay::Drop()
     Update();
 
 #ifdef __WXMSW__
-    wxMilliSleep(100);
+    wxMilliSleep(50);
 
     // Move cursor and release drag (button UP)
     SetCursorPos(m_screenshotPosition.x, m_screenshotPosition.y);
@@ -1481,7 +1481,7 @@ void EyeOverlay::SubmitText()
     Update();
 
 #ifdef __WXMSW__
-    wxMilliSleep(100);
+    wxMilliSleep(50);
 
     // Move cursor and click first (to focus the text field)
     SetCursorPos(m_screenshotPosition.x, m_screenshotPosition.y);
@@ -1497,7 +1497,7 @@ void EyeOverlay::SubmitText()
     clickInputs[1].mi.dwFlags = MOUSEEVENTF_LEFTUP;
     SendInput(2, clickInputs, sizeof(INPUT));
 
-    wxMilliSleep(100);  // Wait for focus to be set
+    wxMilliSleep(50);  // Wait for focus to be set
 
     // Send each character as keyboard input
     for (size_t i = 0; i < text.length(); ++i) {
@@ -1559,7 +1559,7 @@ void EyeOverlay::SubmitTextWithReturn()
     Update();
 
 #ifdef __WXMSW__
-    wxMilliSleep(100);
+    wxMilliSleep(50);
 
     // Move cursor and click first (to focus the text field)
     SetCursorPos(m_screenshotPosition.x, m_screenshotPosition.y);
@@ -1575,7 +1575,7 @@ void EyeOverlay::SubmitTextWithReturn()
     clickInputs[1].mi.dwFlags = MOUSEEVENTF_LEFTUP;
     SendInput(2, clickInputs, sizeof(INPUT));
 
-    wxMilliSleep(100);  // Wait for focus to be set
+    wxMilliSleep(50);  // Wait for focus to be set
 
     // Send each character as keyboard input
     for (size_t i = 0; i < text.length(); ++i) {
