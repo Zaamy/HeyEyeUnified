@@ -608,9 +608,9 @@ void EyeOverlay::DrawKeyboardWithGC(wxGraphicsContext* gc, const wxColour& color
     // Store Undo button as a special key
     m_keyboardKeys.push_back(KeyboardKey(wxT("UNDO"), wxRect(undoX - undoSize/2, undoY - undoSize/2, undoSize, undoSize)));
 
-    // Draw Submit button (top-right corner)
-    int submitX = clientSize.GetWidth() - 50;
-    int submitY = 50;
+    // Draw Submit button (without RETURN) - top-right corner
+    int submitX = clientSize.GetWidth() - 80;
+    int submitY = 80;
     int submitSize = 100;
 
     gc->SetPen(wxPen(color, 2));
@@ -624,6 +624,25 @@ void EyeOverlay::DrawKeyboardWithGC(wxGraphicsContext* gc, const wxColour& color
     // Store Submit button as a special key
     m_keyboardKeys.push_back(KeyboardKey(wxT("SUBMIT"), wxRect(submitX - submitSize/2, submitY - submitSize/2, submitSize, submitSize)));
 
+    // Draw Submit w/ RETURN button - below the first submit button
+    int submitReturnX = clientSize.GetWidth() - 80;
+    int submitReturnY = 220;
+    int submitReturnSize = 100;
+
+    gc->SetPen(wxPen(color, 2));
+    gc->SetBrush(*wxTRANSPARENT_BRUSH);
+    gc->DrawEllipse(submitReturnX - submitReturnSize/2, submitReturnY - submitReturnSize/2, submitReturnSize, submitReturnSize);
+
+    wxFont smallFont(10, wxFONTFAMILY_DEFAULT, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD);
+    gc->SetFont(smallFont, color);
+    gc->GetTextExtent(wxT("Submit"), &textWidth, &textHeight);
+    gc->DrawText(wxT("Submit"), submitReturnX - textWidth/2, submitReturnY - textHeight/2 - 10);
+    gc->GetTextExtent(wxT("w/ Return"), &textWidth, &textHeight);
+    gc->DrawText(wxT("w/ Return"), submitReturnX - textWidth/2, submitReturnY - textHeight/2 + 10);
+
+    // Store Submit w/ RETURN button as a special key
+    m_keyboardKeys.push_back(KeyboardKey(wxT("SUBMIT_RETURN"), wxRect(submitReturnX - submitReturnSize/2, submitReturnY - submitReturnSize/2, submitReturnSize, submitReturnSize)));
+
     // Restore previous progress for Undo button if it exists
     auto undoIter = std::find_if(m_keyboardKeys.begin(), m_keyboardKeys.end(),
                                   [](const KeyboardKey& k) { return k.label == wxT("UNDO"); });
@@ -632,8 +651,15 @@ void EyeOverlay::DrawKeyboardWithGC(wxGraphicsContext* gc, const wxColour& color
     }
 
     // Restore previous progress for Submit button if it exists
-    if (progressMap.count(wxT("SUBMIT")) > 0) {
-        m_keyboardKeys.back().dwellProgress = progressMap[wxT("SUBMIT")];
+    auto submitIter = std::find_if(m_keyboardKeys.begin(), m_keyboardKeys.end(),
+                                    [](const KeyboardKey& k) { return k.label == wxT("SUBMIT"); });
+    if (submitIter != m_keyboardKeys.end() && progressMap.count(wxT("SUBMIT")) > 0) {
+        submitIter->dwellProgress = progressMap[wxT("SUBMIT")];
+    }
+
+    // Restore previous progress for Submit w/ RETURN button if it exists
+    if (progressMap.count(wxT("SUBMIT_RETURN")) > 0) {
+        m_keyboardKeys.back().dwellProgress = progressMap[wxT("SUBMIT_RETURN")];
     }
 
     // Draw progress arc for Undo button if needed
@@ -645,11 +671,19 @@ void EyeOverlay::DrawKeyboardWithGC(wxGraphicsContext* gc, const wxColour& color
     }
 
     // Draw progress arc for Submit button if needed
-    float submitProgress = m_keyboardKeys.back().dwellProgress;
-    if (submitProgress > 0.0f) {
+    if (submitIter != m_keyboardKeys.end() && submitIter->dwellProgress > 0.0f) {
         gc->SetPen(wxPen(color, 6));
         wxGraphicsPath path = gc->CreatePath();
-        path.AddArc(submitX, submitY, submitSize/2 - 5, 0, submitProgress * 2.0 * M_PI, true);
+        path.AddArc(submitX, submitY, submitSize/2 - 5, 0, submitIter->dwellProgress * 2.0 * M_PI, true);
+        gc->StrokePath(path);
+    }
+
+    // Draw progress arc for Submit w/ RETURN button if needed
+    float submitReturnProgress = m_keyboardKeys.back().dwellProgress;
+    if (submitReturnProgress > 0.0f) {
+        gc->SetPen(wxPen(color, 6));
+        wxGraphicsPath path = gc->CreatePath();
+        path.AddArc(submitReturnX, submitReturnY, submitReturnSize/2 - 5, 0, submitReturnProgress * 2.0 * M_PI, true);
         gc->StrokePath(path);
     }
 }
@@ -663,9 +697,11 @@ void EyeOverlay::HandleKeyActivation(const wxString& keyLabel)
         ShowKeyboard(false);
         m_keyboardKeys.clear();
     } else if (keyLabel == wxT("SUBMIT")) {
-        // Submit button - send text to focused application
+        // Submit button - send text to focused application (without RETURN)
         SubmitText();
-        // Keep keyboard visible after submit (don't close it)
+    } else if (keyLabel == wxT("SUBMIT_RETURN")) {
+        // Submit w/ RETURN button - send text and press RETURN
+        SubmitTextWithReturn();
     } else if (keyLabel == wxT("SPACE")) {
         // Space key
         if (m_textEngine) {
@@ -1436,7 +1472,7 @@ void EyeOverlay::SubmitText()
         return;
     }
 
-    wxLogMessage("SubmitText: Sending '%s'", text);
+    wxLogMessage("SubmitText: Sending '%s' (without RETURN)", text);
 
     // Hide overlay
     m_visible = false;
@@ -1487,7 +1523,85 @@ void EyeOverlay::SubmitText()
         SendInput(2, inputs, sizeof(INPUT));
     }
 
-    wxLogMessage("SubmitText: Sent %zu characters", text.length());
+    wxLogMessage("SubmitText: Sent %zu characters (without RETURN)", text.length());
+#endif
+
+    // Clear the text after sending
+    if (m_textEngine) {
+        m_textEngine->Clear();
+    }
+
+    // Hide the keyboard after submit to prevent it from reappearing
+    ShowKeyboard(false);
+    m_keyboardKeys.clear();
+
+    m_visible = true;
+    Show();
+    Refresh();
+}
+
+void EyeOverlay::SubmitTextWithReturn()
+{
+    if (!m_textEngine) return;
+
+    wxString text = m_textEngine->GetCurrentText();
+    if (text.IsEmpty()) {
+        wxLogMessage("SubmitTextWithReturn: No text to submit");
+        return;
+    }
+
+    wxLogMessage("SubmitTextWithReturn: Sending '%s' (with RETURN)", text);
+
+    // Hide overlay
+    m_visible = false;
+    Hide();
+    Refresh();
+    Update();
+
+#ifdef __WXMSW__
+    wxMilliSleep(100);
+
+    // Move cursor and click first (to focus the text field)
+    SetCursorPos(m_screenshotPosition.x, m_screenshotPosition.y);
+
+    wxMilliSleep(m_settingCursorDelay);
+
+    // Perform click to focus
+    INPUT clickInputs[2];
+    ZeroMemory(clickInputs, sizeof(clickInputs));
+    clickInputs[0].type = INPUT_MOUSE;
+    clickInputs[0].mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+    clickInputs[1].type = INPUT_MOUSE;
+    clickInputs[1].mi.dwFlags = MOUSEEVENTF_LEFTUP;
+    SendInput(2, clickInputs, sizeof(INPUT));
+
+    wxMilliSleep(100);  // Wait for focus to be set
+
+    // Send each character as keyboard input
+    for (size_t i = 0; i < text.length(); ++i) {
+        wchar_t ch = text[i];
+
+        INPUT inputs[2];
+        ZeroMemory(inputs, sizeof(inputs));
+
+        // Key down
+        inputs[0].type = INPUT_KEYBOARD;
+        inputs[0].ki.wVk = 0;
+        inputs[0].ki.wScan = ch;
+        inputs[0].ki.dwFlags = KEYEVENTF_UNICODE;
+        inputs[0].ki.time = 0;
+
+        // Key up
+        inputs[1].type = INPUT_KEYBOARD;
+        inputs[1].ki.wVk = 0;
+        inputs[1].ki.wScan = ch;
+        inputs[1].ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
+        inputs[1].ki.time = 0;
+
+        SendInput(2, inputs, sizeof(INPUT));
+    }
+
+    wxLogMessage("SubmitTextWithReturn: Sent %zu characters", text.length());
 
     // Send RETURN key to validate the query
     wxMilliSleep(50);
@@ -1506,7 +1620,7 @@ void EyeOverlay::SubmitText()
     returnInputs[1].ki.dwFlags = KEYEVENTF_KEYUP;
 
     SendInput(2, returnInputs, sizeof(INPUT));
-    wxLogMessage("SubmitText: Sent RETURN key");
+    wxLogMessage("SubmitTextWithReturn: Sent RETURN key");
 #endif
 
     // Clear the text after sending

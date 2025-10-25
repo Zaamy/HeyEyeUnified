@@ -132,7 +132,8 @@ private:
     void Drag();
     void Drop();
     void ToggleHide();
-    void SubmitText();  // Click and send keyboard input
+    void SubmitText();  // Click and send keyboard input (without RETURN)
+    void SubmitTextWithReturn();  // Click, send keyboard input, and press RETURN
 
 #ifdef __WXMSW__
     // Windows-specific: Window procedure to prevent focus activation
