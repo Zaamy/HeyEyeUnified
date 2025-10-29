@@ -184,18 +184,11 @@ Uncomment and configure the sections for each dependency you want to use.
 
 ## Usage
 
-### Keyboard Shortcuts
-
-- `K` - Toggle keyboard visibility
-- `M` - Switch between Letter-by-Letter and Swipe modes
-- `ESC` - Exit application
-
 ### Basic Operation
 
 1. Launch the application
 2. The overlay appears transparent across your screen
-3. Press `K` to show the keyboard
-4. Choose your input mode:
+3. Choose your input mode:
    - **Letter-by-Letter**: Look at each letter until the progress arc completes
    - **Swipe**: Look at the starting letter, trace the word path with your gaze, then look away
 

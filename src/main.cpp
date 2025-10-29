@@ -58,11 +58,6 @@ bool HeyEyeApp::OnInit()
     }
 
     wxLogMessage("");
-    wxLogMessage("=== Keyboard Shortcuts ===");
-    wxLogMessage("K - Toggle keyboard visibility");
-    wxLogMessage("M - Switch between Letter-by-Letter and Swipe modes");
-    wxLogMessage("ESC - Exit application");
-    wxLogMessage("");
     wxLogMessage("=== Application Ready ===");
 
     return true;

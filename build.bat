@@ -16,10 +16,12 @@ echo [1/3] Configuring with CMake...
 cmake .. -G "Visual Studio 16 2019" -A x64 ^
     -DCMAKE_TOOLCHAIN_FILE=D:/Deps/vcpkg/scripts/buildsystems/vcpkg.cmake ^
     -DUSE_TOBII=ON ^
-    -DUSE_ONNX=OFF ^
-    -DUSE_FAISS=OFF ^
-    -DUSE_KENLM=OFF ^
-    -DUSE_LIGHTGBM=OFF
+    -DUSE_ONNX=ON ^
+    -DUSE_FAISS=ON ^
+    -DUSE_KENLM=ON ^
+    -DUSE_LIGHTGBM=ON ^
+    -DUSE_MSGPACK=ON
+
 
 if %ERRORLEVEL% NEQ 0 (
     echo ERROR: CMake configuration failed

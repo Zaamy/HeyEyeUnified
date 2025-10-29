@@ -19,13 +19,6 @@ namespace faiss {
     typedef long long idx_t;
 }
 
-namespace lm {
-    namespace ngram {
-        class Model;
-        struct State;
-    }
-}
-
 class LightGBMRanker;
 
 /**
@@ -63,6 +56,14 @@ public:
     // Language model access for external use
     float EvaluateSequence(const std::vector<wxString>& words);
 
+    // Incremental evaluation with state (for ranking candidates)
+    struct KenLMResult {
+        float logProb;
+        void* state;  // Opaque pointer to lm::ngram::State
+    };
+    KenLMResult EvaluateIncremental(const std::vector<wxString>& words, float initialLogProb = 0.0f, void* initialState = nullptr);
+    void* GetBeginSentenceState();
+
     // Callbacks (replace Qt signals)
     std::function<void(const wxString&)> OnTextChanged;
     std::function<void(const wxString&)> OnPredictionReady;
@@ -96,7 +97,7 @@ private:
     Ort::Session* m_swipeEncoder;
     Ort::MemoryInfo* m_memoryInfo;
     faiss::Index* m_faissIndex;
-    lm::ngram::Model* m_kenLM;
+    void* m_kenLM;  // Opaque pointer to lm::ngram::Model
     LightGBMRanker* m_lightGBM;
 
     // Vocabulary

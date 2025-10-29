@@ -1,4 +1,10 @@
 cmake_minimum_required(VERSION 3.15)
+
+# Set policy for Boost (suppress CMP0167 warning)
+if(POLICY CMP0167)
+    cmake_policy(SET CMP0167 OLD)
+endif()
+
 project(HeyEyeUnified VERSION 1.0.0 LANGUAGES CXX)
 
 # C++17 required
@@ -24,6 +30,10 @@ set(SOURCES
     ${SRC_DIR}/eyeoverlay.cpp
     ${SRC_DIR}/CircularButton.cpp
     ${SRC_DIR}/settings.cpp
+    ${SRC_DIR}/lightgbm_ranker.cpp
+    ${SRC_DIR}/ranking_features.cpp
+    ${SRC_DIR}/ranking_features_helper.cpp
+    ${SRC_DIR}/ml_helpers.cpp
 )
 
 # Header files
@@ -35,6 +45,9 @@ set(HEADERS
     ${INCLUDE_DIR}/eyeoverlay.h
     ${INCLUDE_DIR}/CircularButton.h
     ${INCLUDE_DIR}/settings.h
+    ${INCLUDE_DIR}/lightgbm_ranker.h
+    ${INCLUDE_DIR}/ranking_features.h
+    ${INCLUDE_DIR}/ml_helpers.h
 )
 
 # Create executable
@@ -82,6 +95,29 @@ if(USE_ONNX)
         target_link_libraries(${PROJECT_NAME} PRIVATE ${ONNXRUNTIME_LIBRARY})
         target_compile_definitions(${PROJECT_NAME} PRIVATE USE_ONNX)
         message(STATUS "ONNX Runtime found: ${ONNXRUNTIME_LIBRARY}")
+
+        # Copy ONNX Runtime DLLs to output directory on Windows
+        if(WIN32)
+            # Get the directory containing the ONNX Runtime library
+            get_filename_component(ONNXRUNTIME_LIB_DIR ${ONNXRUNTIME_LIBRARY} DIRECTORY)
+
+            add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${ONNXRUNTIME_LIB_DIR}/onnxruntime.dll"
+                    $<TARGET_FILE_DIR:${PROJECT_NAME}>
+                COMMENT "Copying onnxruntime.dll to output directory"
+            )
+
+            # Also copy providers shared library if it exists
+            if(EXISTS "${ONNXRUNTIME_LIB_DIR}/onnxruntime_providers_shared.dll")
+                add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                        "${ONNXRUNTIME_LIB_DIR}/onnxruntime_providers_shared.dll"
+                        $<TARGET_FILE_DIR:${PROJECT_NAME}>
+                    COMMENT "Copying onnxruntime_providers_shared.dll to output directory"
+                )
+            endif()
+        endif()
     else()
         message(WARNING "ONNX Runtime not found")
     endif()
@@ -130,13 +166,35 @@ if(USE_KENLM)
             /usr/local/lib
             /usr/lib
     )
+
+    # Find Boost libraries (required by KenLM)
+    # Note: KenLM primarily needs system, filesystem, and thread
+    find_package(Boost COMPONENTS system filesystem thread REQUIRED)
+
     if(KENLM_INCLUDE_DIR AND KENLM_LIBRARY)
         target_include_directories(${PROJECT_NAME} PRIVATE ${KENLM_INCLUDE_DIR})
         target_link_libraries(${PROJECT_NAME} PRIVATE ${KENLM_LIBRARY})
         target_compile_definitions(${PROJECT_NAME} PRIVATE USE_KENLM)
+        target_compile_definitions(${PROJECT_NAME} PRIVATE KENLM_MAX_ORDER=6)
         message(STATUS "KenLM found: ${KENLM_LIBRARY}")
+
+        # Link Boost libraries
+        if(Boost_FOUND)
+            target_include_directories(${PROJECT_NAME} PRIVATE ${Boost_INCLUDE_DIRS})
+            target_link_libraries(${PROJECT_NAME} PRIVATE
+                Boost::system
+                Boost::filesystem
+                Boost::thread
+            )
+            message(STATUS "Boost found: ${Boost_VERSION}")
+            message(STATUS "  Boost components: system, filesystem, thread")
+        else()
+            message(FATAL_ERROR "Boost not found - required for KenLM")
+        endif()
     else()
         message(WARNING "KenLM not found")
+        message(STATUS "  KENLM_INCLUDE_DIR: ${KENLM_INCLUDE_DIR}")
+        message(STATUS "  KENLM_LIBRARY: ${KENLM_LIBRARY}")
     endif()
 endif()
 
@@ -163,6 +221,24 @@ if(USE_LIGHTGBM)
         message(STATUS "LightGBM found: ${LIGHTGBM_LIBRARY}")
     else()
         message(WARNING "LightGBM not found")
+    endif()
+endif()
+
+# msgpack-c (header-only library for vocabulary loading)
+option(USE_MSGPACK "Enable msgpack for vocabulary loading" OFF)
+if(USE_MSGPACK)
+    find_path(MSGPACK_INCLUDE_DIR msgpack.hpp
+        PATHS
+            D:/Deps/vcpkg/installed/x64-windows/include
+            /usr/local/include
+            /usr/include
+    )
+    if(MSGPACK_INCLUDE_DIR)
+        target_include_directories(${PROJECT_NAME} PRIVATE ${MSGPACK_INCLUDE_DIR})
+        target_compile_definitions(${PROJECT_NAME} PRIVATE USE_MSGPACK)
+        message(STATUS "msgpack-c found: ${MSGPACK_INCLUDE_DIR}")
+    else()
+        message(WARNING "msgpack-c not found")
     endif()
 endif()
 
@@ -225,6 +301,12 @@ if(WIN32)
 
     # Increase compiler heap size
     target_compile_options(${PROJECT_NAME} PRIVATE /Zm600)
+
+    # Enable Link-Time Code Generation for Release builds (matches KenLM library)
+    if(USE_KENLM)
+        target_compile_options(${PROJECT_NAME} PRIVATE $<$<CONFIG:Release>:/GL>)
+        target_link_options(${PROJECT_NAME} PRIVATE $<$<CONFIG:Release>:/LTCG>)
+    endif()
 endif()
 
 # ============================================================================
@@ -273,6 +355,7 @@ message(STATUS "  ONNX Runtime: ${USE_ONNX}")
 message(STATUS "  FAISS:        ${USE_FAISS}")
 message(STATUS "  KenLM:        ${USE_KENLM}")
 message(STATUS "  LightGBM:     ${USE_LIGHTGBM}")
+message(STATUS "  msgpack-c:    ${USE_MSGPACK}")
 message(STATUS "  Tobii SDK:    ${USE_TOBII}")
 message(STATUS "")
 message(STATUS "Build directory: ${CMAKE_BINARY_DIR}")
