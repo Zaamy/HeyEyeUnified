@@ -452,8 +452,9 @@ void EyeOverlay::DrawKeyboardWithGC(wxGraphicsContext* gc, const wxColour& color
 
     // Calculate keyboard position on overlay
     // Position keyboard area at bottom center
-    int keyboardWidth = 1400;
-    int keyboardHeight = 400;
+    // Increased size to accommodate multi-layer character display
+    int keyboardWidth = 1600;
+    int keyboardHeight = 500;
     int keyboardX = (clientSize.GetWidth() - keyboardWidth) / 2;
     int keyboardY = clientSize.GetHeight() - keyboardHeight - 50;
 
@@ -461,7 +462,12 @@ void EyeOverlay::DrawKeyboardWithGC(wxGraphicsContext* gc, const wxColour& color
     std::vector<KeyRenderInfo> keys = m_keyboard->GetKeysForRendering();
 
     // Draw all keyboard keys (translated to overlay coordinates)
-    wxFont keyFont(18, wxFONTFAMILY_DEFAULT, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD);
+    // Active character: larger and bold (the one that will be typed)
+    wxFont activeFont(20, wxFONTFAMILY_DEFAULT, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD);
+    // Inactive characters: smaller and normal weight
+    wxFont inactiveFont(10, wxFONTFAMILY_DEFAULT, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL);
+    // Dimmed color for inactive characters
+    wxColour inactiveColor(color.Red(), color.Green(), color.Blue(), 150);
 
     for (const auto& keyInfo : keys) {
         // Translate KeyboardView coordinates to overlay coordinates
@@ -489,11 +495,64 @@ void EyeOverlay::DrawKeyboardWithGC(wxGraphicsContext* gc, const wxColour& color
         gc->SetPen(wxPen(color, 2));
         gc->DrawRoundedRectangle(keyX, keyY, keyW, keyH, 5);
 
-        // Draw key label
-        gc->SetFont(keyFont, color);
-        double textWidth, textHeight;
-        gc->GetTextExtent(keyInfo.label, &textWidth, &textHeight);
-        gc->DrawText(keyInfo.label, centerX - textWidth/2, centerY - textHeight/2);
+        // Draw multi-layer character labels for character keys
+        if (keyInfo.keyType == KeyType::Character) {
+            const int padding = 4;  // Padding from key edges
+
+            // Draw shift character (top-left)
+            if (!keyInfo.shiftLabel.IsEmpty()) {
+                bool isActive = (keyInfo.activeLayer == KeyRenderInfo::Shift);
+                gc->SetFont(isActive ? activeFont : inactiveFont, isActive ? color : inactiveColor);
+                double textWidth, textHeight;
+                gc->GetTextExtent(keyInfo.shiftLabel, &textWidth, &textHeight);
+
+                if (isActive) {
+                    // If shift is active, draw it larger and centered
+                    gc->DrawText(keyInfo.shiftLabel, centerX - textWidth/2, centerY - textHeight/2);
+                } else {
+                    // Draw in corner
+                    gc->DrawText(keyInfo.shiftLabel, keyX + padding, keyY + padding);
+                }
+            }
+
+            // Draw AltGr character (top-right)
+            if (!keyInfo.altgrLabel.IsEmpty()) {
+                bool isActive = (keyInfo.activeLayer == KeyRenderInfo::AltGr);
+                gc->SetFont(isActive ? activeFont : inactiveFont, isActive ? color : inactiveColor);
+                double textWidth, textHeight;
+                gc->GetTextExtent(keyInfo.altgrLabel, &textWidth, &textHeight);
+
+                if (isActive) {
+                    // If AltGr is active, draw it larger and centered
+                    gc->DrawText(keyInfo.altgrLabel, centerX - textWidth/2, centerY - textHeight/2);
+                } else {
+                    // Draw in corner
+                    gc->DrawText(keyInfo.altgrLabel, keyX + keyW - textWidth - padding, keyY + padding);
+                }
+            }
+
+            // Draw primary character (center)
+            if (!keyInfo.primaryLabel.IsEmpty()) {
+                bool isActive = (keyInfo.activeLayer == KeyRenderInfo::Primary);
+                gc->SetFont(isActive ? activeFont : inactiveFont, isActive ? color : inactiveColor);
+                double textWidth, textHeight;
+                gc->GetTextExtent(keyInfo.primaryLabel, &textWidth, &textHeight);
+
+                if (isActive) {
+                    // Draw centered and large
+                    gc->DrawText(keyInfo.primaryLabel, centerX - textWidth/2, centerY - textHeight/2);
+                } else {
+                    // Draw at bottom when not active
+                    gc->DrawText(keyInfo.primaryLabel, centerX - textWidth/2, keyY + keyH - textHeight - padding);
+                }
+            }
+        } else {
+            // For modifier keys, just draw the primary label centered
+            gc->SetFont(activeFont, color);
+            double textWidth, textHeight;
+            gc->GetTextExtent(keyInfo.primaryLabel, &textWidth, &textHeight);
+            gc->DrawText(keyInfo.primaryLabel, centerX - textWidth/2, centerY - textHeight/2);
+        }
 
         // Draw progress arc if key has dwell progress
         if (keyInfo.progress > 0.0f) {
@@ -650,8 +709,8 @@ void EyeOverlay::OnGazePositionUpdated(float x, float y, uint64_t timestamp)
 
         // Calculate where keyboard is rendered on overlay (same calculation as in DrawKeyboardWithGC)
         wxSize clientSize = GetClientSize();
-        int keyboardWidth = 1400;
-        int keyboardHeight = 400;
+        int keyboardWidth = 1600;
+        int keyboardHeight = 500;
         int keyboardX = (clientSize.GetWidth() - keyboardWidth) / 2;
         int keyboardY = clientSize.GetHeight() - keyboardHeight - 50;
 
@@ -913,7 +972,7 @@ void EyeOverlay::SetupUI()
 {
     // Create keyboard as a child of overlay (will be rendered manually on the overlay)
     m_keyboard = new KeyboardView(this);
-    m_keyboard->SetSize(1400, 400);
+    m_keyboard->SetSize(1600, 500);  // Increased size for multi-layer character display
     m_keyboard->Show(false);  // Don't show as child (we'll render it manually)
 
     // Set up keyboard callbacks

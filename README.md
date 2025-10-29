@@ -13,25 +13,46 @@ HeyEye Unified provides an intuitive eye-controlled interface with two complemen
 
 ### Core Components
 
-- **KeyButton**: Individual keyboard key with dwell-time progress indicator and swipe highlighting
-- **KeyboardView**: AZERTY French keyboard layout with dual input mode support
-- **GazeTracker**: Tobii eye tracking integration (~120Hz update rate)
-- **TextInputEngine**: ML pipeline integrating ONNX, FAISS, KenLM, and LightGBM
-- **EyeOverlay**: Full-screen transparent interface with stay-on-top behavior
+- **KeyButton**: Individual keyboard key with dwell-time progress indicator and multi-layer character display
+- **KeyboardView**: Complete French AZERTY keyboard (4 rows + modifiers) with dual input mode support
+- **GazeTracker**: Tobii eye tracking integration (~120Hz update rate) with mouse fallback mode
+- **TextInputEngine**: ML pipeline integrating ONNX, FAISS, KenLM, and LightGBM for swipe prediction
+- **EyeOverlay**: Full-screen transparent overlay with high-quality rendering (wxGraphicsContext + per-pixel alpha)
+- **CircularButton**: Radial menu buttons for mouse control (click, drag, scroll) à la HeyEyeControl
+
+### Keyboard Features
+
+- **Multi-Layer Character Display**: Each key shows all available characters
+  - Primary character (center, large, bold when active)
+  - Shift character (top-left corner, dimmed when inactive)
+  - AltGr character (top-right corner, dimmed when inactive)
+- **Active Character Highlighting**: The character that will be typed is emphasized
+  - Larger font (20pt vs 10pt)
+  - Bold weight
+  - Full brightness vs dimmed
+  - Centered position
+- **Complete AZERTY Layout**:
+  - 4 rows of character keys with French accents (é, è, ç, à, ù)
+  - Full modifier support (Shift, Caps Lock, AltGr)
+  - Special characters (€, £, ¤, §, °, µ, ¨)
+  - 47 character keys + modifiers + space bar
+- **Visual Feedback**: Real-time progress arcs, hover highlighting, modifier states
 
 ### Input Modes
 
 #### Letter-by-Letter Mode
 - Hover over a key with your gaze
-- Visual progress arc shows dwell time
+- Visual progress arc shows dwell time (800ms default)
+- Active character is highlighted (bold + large + centered)
 - Automatic selection when dwell time completes
-- Default dwell time: 800ms (configurable)
+- Modifier keys (Shift/Caps/AltGr) change which character is active
 
 #### Swipe Mode
 - Start gazing at the first letter
 - Move your gaze across letters to form a word path
 - Release (look away from keyboard) to complete gesture
 - ML model predicts the intended word from the path
+- Path visualization with dots and lines
 
 ### ML Pipeline (Swipe Mode)
 
@@ -74,9 +95,11 @@ HeyEyeUnified/
 
 ### Requirements
 
-- Qt 6.5.3 or later (Core, GUI, Widgets, Multimedia modules)
-- C++17 compiler
-- CMake (for building dependencies)
+- **wxWidgets 3.2+** (installed via vcpkg recommended)
+- **CMake 3.15+**
+- **C++17 compiler** (MSVC 2019+, GCC 9+, or Clang 9+)
+- **vcpkg** (recommended for Windows dependency management)
+- **Windows SDK** (for user32.lib - mouse/cursor control)
 
 ### Optional ML Dependencies
 
@@ -92,33 +115,59 @@ For full swipe prediction functionality:
 
 ### Build Steps
 
-1. **Install vcpkg dependencies** (if using ML features):
-```bash
-vcpkg install faiss:x64-windows lightgbm:x64-windows
+#### Quick Build (Windows)
+
+```cmd
+cd HeyEyeUnified
+build.bat
 ```
 
-2. **Build submodules** (if using):
-```bash
-# espeak-ng
-cd ../to_combined/HeyEyeTracker/espeak-ng
-mkdir build && cd build
-cmake .. && cmake --build . --config Release
+This will:
+1. Clean the build directory
+2. Run CMake with vcpkg toolchain
+3. Build Release configuration
+4. Output: `build\Release\HeyEyeUnified.exe`
 
-# llama.cpp
-cd ../../llama.cpp
-mkdir build && cd build
-cmake .. && cmake --build . --config Release
+#### Manual Build
+
+1. **Install wxWidgets via vcpkg**:
+```cmd
+D:\Deps\vcpkg\vcpkg.exe install wxwidgets:x64-windows
 ```
 
-3. **Open in Qt Creator**:
-   - Open `HeyEyeUnified.pro`
-   - Configure build paths in the .pro file
-   - Build (Ctrl+B)
+2. **Configure with CMake**:
+```cmd
+cd HeyEyeUnified
+cmake -S . -B build ^
+    -G "Visual Studio 16 2019" ^
+    -A x64 ^
+    -DCMAKE_TOOLCHAIN_FILE=D:/Deps/vcpkg/scripts/buildsystems/vcpkg.cmake
+```
 
-4. **Copy assets** (if available):
-```bash
-mkdir build/release/assets
-cp ../to_combined/HeyEyeTracker/assets/* build/release/assets/
+3. **Build**:
+```cmd
+cmake --build build --config Release
+```
+
+4. **Run**:
+```cmd
+build\Release\HeyEyeUnified.exe
+```
+
+#### Optional: Enable ML Features
+
+```cmd
+D:\Deps\vcpkg\vcpkg.exe install faiss:x64-windows lightgbm:x64-windows
+
+cmake -S . -B build ^
+    -G "Visual Studio 16 2019" ^
+    -A x64 ^
+    -DCMAKE_TOOLCHAIN_FILE=D:/Deps/vcpkg/scripts/buildsystems/vcpkg.cmake ^
+    -DUSE_ONNX=ON ^
+    -DUSE_FAISS=ON ^
+    -DUSE_KENLM=ON ^
+    -DUSE_LIGHTGBM=ON ^
+    -DUSE_TOBII=ON
 ```
 
 ## Configuration
@@ -206,14 +255,19 @@ QWidget
 
 | Feature | HeyEyeControl | HeyEyeTracker | HeyEye Unified |
 |---------|---------------|---------------|----------------|
+| Framework | Qt 6.5 | Qt 6.5 | **wxWidgets 3.2** |
 | Letter-by-letter input | ✓ (via EyePanel) | ✗ | ✓ |
 | Swipe ML prediction | ✗ | ✓ | ✓ |
 | Mode switching | ✗ | ✗ | ✓ |
 | Clean class structure | Partial | Partial | ✓ |
-| Full-screen overlay | ✓ | ✗ | ✓ |
-| Visual keyboard | Basic | QLabel-based | KeyButton-based |
+| Full-screen overlay | ✓ | ✗ | ✓ (per-pixel alpha) |
+| Visual keyboard | Basic (3 rows) | QLabel-based | **Full 4-row AZERTY** |
+| Multi-layer display | ✗ | ✗ | **✓ (primary/shift/altgr)** |
+| Active char highlighting | ✗ | ✗ | **✓ (bold + large)** |
 | Progress indicator | ✓ | ✗ | ✓ |
 | Modular architecture | ✗ | ✗ | ✓ |
+| Mouse control (radial menu) | ✓ | ✗ | ✓ |
+| Unicode support | Partial | Partial | **✓ (full Unicode)** |
 
 ## Testing Without Eye Tracker
 
@@ -224,21 +278,33 @@ The application can run without a Tobii device:
 
 ## Known Limitations
 
-- ML models require substantial RAM (FAISS index + ONNX models)
+- ML models require substantial RAM (FAISS index + ONNX models ~300MB-3GB)
 - Swipe prediction requires pre-trained models and vocabulary
 - Currently configured for French AZERTY layout only
-- Requires Windows for full overlay functionality (uiAccess)
+- Optimized for Windows (transparent overlay, per-pixel alpha rendering)
+- Eye tracking requires Tobii hardware (mouse mode available for testing)
+
+## Recent Improvements (2025-10-29)
+
+- ✅ **Merged Duplicate Keyboards**: Unified KeyboardView layout with EyeOverlay rendering
+- ✅ **Multi-Layer Character Display**: All 3 character layers visible on each key
+- ✅ **Active Character Highlighting**: Dynamic visual feedback based on modifier state
+- ✅ **Unicode Character Support**: Fixed encoding issues for French accents (é, è, ç, à, ù)
+- ✅ **Complete AZERTY Layout**: Full 4-row keyboard with 47 keys + modifiers
+- ✅ **Improved Key Size**: 20% larger keys for better visibility (1600×500px keyboard area)
+- ✅ **High-Quality Rendering**: wxGraphicsContext with per-pixel alpha transparency
 
 ## Future Enhancements
 
 - [ ] Add QWERTY/QWERTZ layouts
 - [ ] Implement adaptive dwell time based on user proficiency
 - [ ] Add word suggestion bar above keyboard
-- [ ] Implement settings dialog for customization
+- [ ] Implement settings dialog for customization (Settings class exists)
 - [ ] Add calibration routine for eye tracker
-- [ ] Support for multiple languages
+- [ ] Support for multiple languages (currently French)
 - [ ] Auto-capitalization and punctuation prediction
 - [ ] Swipe path smoothing and noise reduction
+- [ ] Cross-platform support (Linux, macOS)
 
 ## License
 

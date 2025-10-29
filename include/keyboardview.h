@@ -22,21 +22,34 @@ enum class InputMode {
  */
 struct KeyRenderInfo {
     wxRect2DDouble geometry;      // Key position and size
-    wxString label;               // Display label
+    wxString primaryLabel;        // Primary character (center/bottom)
+    wxString shiftLabel;          // Shift character (top-left)
+    wxString altgrLabel;          // AltGr character (top-right)
     float progress;               // Dwell progress (0.0 to 1.0)
     bool isHovered;               // Currently hovered by gaze
     bool isHighlighted;           // Highlighted (for swipe visualization)
     bool isModifierActive;        // For modifier keys (shift/caps/altgr)
     KeyType keyType;              // Type of key
 
+    // Which character layer is currently active (will be typed)
+    enum ActiveLayer {
+        Primary,
+        Shift,
+        AltGr
+    };
+    ActiveLayer activeLayer;      // Which character is active based on modifiers
+
     KeyRenderInfo()
         : geometry()
-        , label()
+        , primaryLabel()
+        , shiftLabel()
+        , altgrLabel()
         , progress(0.0f)
         , isHovered(false)
         , isHighlighted(false)
         , isModifierActive(false)
         , keyType(KeyType::Character)
+        , activeLayer(Primary)
     {}
 };
 

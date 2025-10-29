@@ -461,6 +461,7 @@ void KeyboardView::UpdateKeyGeometries()
 
     // Calculate key size based on widget dimensions
     // Need space for 12 keys in the longest row + spacing
+    // Increased key spacing for better visibility of multi-layer characters
     float availableWidth = clientSize.GetWidth() - m_keySpacing * 13;
     float keyWidth = availableWidth / 12.0f;
 
@@ -468,7 +469,8 @@ void KeyboardView::UpdateKeyGeometries()
     float availableHeight = clientSize.GetHeight() - m_keySpacing * 7;
     float keyHeight = availableHeight / 6.0f;
 
-    float keySize = std::min(keyWidth, keyHeight);
+    // Increase key size by 20% for better multi-character visibility
+    float keySize = std::min(keyWidth, keyHeight) * 1.2f;
 
     // Position regular keys in 4 rows
     size_t keyIndex = 0;
@@ -649,25 +651,40 @@ std::vector<KeyRenderInfo> KeyboardView::GetKeysForRendering() const
         info.isModifierActive = key->IsModifierActive();
         info.keyType = key->GetKeyType();
 
-        // Determine label based on modifier state
         if (key->GetKeyType() == KeyType::Character) {
-            // For character keys, show the appropriate character based on modifiers
-            wxChar displayChar = 0;
-            if (m_altgrActive && key->GetAltGrCharacter() != 0) {
-                displayChar = key->GetAltGrCharacter();
-            } else if ((m_shiftActive || m_capsLockActive) && key->GetShiftCharacter() != 0) {
-                displayChar = key->GetShiftCharacter();
-            } else {
-                displayChar = key->GetPrimaryCharacter();
+            // For character keys, show ALL three layers (primary, shift, altgr)
+            // This allows users to see what characters are available on each key
+
+            // Primary character (center/bottom)
+            wxChar primaryChar = key->GetPrimaryCharacter();
+            if (primaryChar != 0) {
+                info.primaryLabel = wxString(&primaryChar, 1);
             }
 
-            // Show the character as-is (don't modify it)
-            // Construct wxString directly from wxChar for proper Unicode handling
-            // Don't use Format("%c") as it doesn't handle Unicode properly
-            info.label = wxString(&displayChar, 1);
+            // Shift character (top-left)
+            wxChar shiftChar = key->GetShiftCharacter();
+            if (shiftChar != 0 && shiftChar != primaryChar) {
+                info.shiftLabel = wxString(&shiftChar, 1);
+            }
+
+            // AltGr character (top-right)
+            wxChar altgrChar = key->GetAltGrCharacter();
+            if (altgrChar != 0) {
+                info.altgrLabel = wxString(&altgrChar, 1);
+            }
+
+            // Determine which character layer is currently active
+            if (m_altgrActive && altgrChar != 0) {
+                info.activeLayer = KeyRenderInfo::AltGr;
+            } else if ((m_shiftActive || m_capsLockActive) && shiftChar != 0) {
+                info.activeLayer = KeyRenderInfo::Shift;
+            } else {
+                info.activeLayer = KeyRenderInfo::Primary;
+            }
         } else {
-            // For modifier keys, use the label directly
-            info.label = key->GetLabel();
+            // For modifier keys, use the label directly in primary
+            info.primaryLabel = key->GetLabel();
+            info.activeLayer = KeyRenderInfo::Primary;
         }
 
         return info;
