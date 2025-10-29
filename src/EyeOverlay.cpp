@@ -25,11 +25,7 @@ wxBEGIN_EVENT_TABLE(EyeOverlay, wxFrame)
     EVT_PAINT(EyeOverlay::OnPaint)
     EVT_ERASE_BACKGROUND(EyeOverlay::OnEraseBackground)
     EVT_SIZE(EyeOverlay::OnSize)
-    EVT_KEY_DOWN(EyeOverlay::OnKeyDown)
     EVT_CLOSE(EyeOverlay::OnClose)
-    EVT_BUTTON(ID_TOGGLE_MODE, EyeOverlay::OnToggleInputMode)
-    EVT_BUTTON(ID_TOGGLE_KEYBOARD, EyeOverlay::OnToggleKeyboard)
-    EVT_BUTTON(ID_DELETE_WORD, EyeOverlay::OnDeleteLastWord)
     EVT_BUTTON(ID_SPEAK, EyeOverlay::OnSpeak)
 wxEND_EVENT_TABLE()
 
@@ -648,30 +644,6 @@ void EyeOverlay::OnSize(wxSizeEvent& event)
     UpdateButtonPositions();
 }
 
-void EyeOverlay::OnKeyDown(wxKeyEvent& event)
-{
-    int keyCode = event.GetKeyCode();
-
-    switch (keyCode) {
-        case 'K':
-        case 'k':
-            ShowKeyboard(!m_keyboardVisible);
-            break;
-
-        case 'M':
-        case 'm':
-            OnToggleInputMode(wxCommandEvent());
-            break;
-
-        case WXK_ESCAPE:
-            Close(true);  // Force close
-            break;
-
-        default:
-            event.Skip();
-    }
-}
-
 void EyeOverlay::OnClose(wxCloseEvent& event)
 {
     wxLogMessage("EyeOverlay: Closing application...");
@@ -924,41 +896,6 @@ void EyeOverlay::OnTextChanged(const wxString& text)
     // Text display removed - no longer using wxStaticText overlay
     // Text is handled by the keyboard component
     wxLogMessage("Text changed: %s", text);
-}
-
-void EyeOverlay::OnToggleInputMode(wxCommandEvent& event)
-{
-    wxUnusedVar(event);
-
-    if (!m_keyboard) return;
-
-    InputMode currentMode = m_keyboard->GetInputMode();
-    InputMode newMode = (currentMode == InputMode::LetterByLetter)
-                        ? InputMode::Swipe
-                        : InputMode::LetterByLetter;
-
-    m_keyboard->SetInputMode(newMode);
-
-    wxString modeText = (newMode == InputMode::LetterByLetter)
-                       ? wxT("Mode: Letter-by-Letter")
-                       : wxT("Mode: Swipe");
-
-    wxLogMessage("%s", modeText);
-}
-
-void EyeOverlay::OnToggleKeyboard(wxCommandEvent& event)
-{
-    wxUnusedVar(event);
-    ShowKeyboard(!m_keyboardVisible);
-    wxLogMessage("Keyboard visible: %d", m_keyboardVisible);
-}
-
-void EyeOverlay::OnDeleteLastWord(wxCommandEvent& event)
-{
-    wxUnusedVar(event);
-    if (m_textEngine) {
-        m_textEngine->DeleteLastWord();
-    }
 }
 
 void EyeOverlay::OnSpeak(wxCommandEvent& event)

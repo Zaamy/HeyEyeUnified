@@ -10,13 +10,14 @@ wxEND_EVENT_TABLE()
 
 KeyboardView::KeyboardView(wxWindow *parent)
     : wxPanel(parent, wxID_ANY)
-    , m_inputMode(InputMode::LetterByLetter)
+    , m_swipeEnabled(true)
     , m_spaceKey(nullptr)
     , m_shiftKey(nullptr)
     , m_capsLockKey(nullptr)
     , m_altgrKey(nullptr)
     , m_backspaceKey(nullptr)
     , m_enterKey(nullptr)
+    , m_swipeToggleKey(nullptr)
     , m_shiftActive(false)
     , m_capsLockActive(false)
     , m_altgrActive(false)
@@ -25,6 +26,7 @@ KeyboardView::KeyboardView(wxWindow *parent)
     , m_lastUpdateTime(wxGetLocalTimeMillis())
     , m_dwellTimeMs(800)
     , m_recordingSwipe(false)
+    , m_previousGazePosition(0, 0)
     , m_normalColor(240, 240, 240)
     , m_hoverColor(102, 204, 255)
     , m_progressColor(0, 150, 255)
@@ -57,22 +59,24 @@ KeyboardView::~KeyboardView()
     delete m_altgrKey;
     delete m_backspaceKey;
     delete m_enterKey;
+    delete m_swipeToggleKey;
 }
 
-void KeyboardView::SetInputMode(InputMode mode)
+void KeyboardView::SetSwipeEnabled(bool enabled)
 {
-    if (m_inputMode != mode) {
-        m_inputMode = mode;
+    if (m_swipeEnabled != enabled) {
+        m_swipeEnabled = enabled;
 
-        // Reset state when switching modes
-        if (m_currentHoveredKey) {
-            m_currentHoveredKey->SetHovered(false);
-            m_currentHoveredKey->SetProgress(0.0f);
-            m_currentHoveredKey = nullptr;
+        // Clear swipe state when disabling
+        if (!m_swipeEnabled) {
+            m_recordingSwipe = false;
+            ClearSwipePath();
         }
 
-        ClearSwipePath();
-        ClearHighlights();
+        // Update swipe toggle key appearance
+        if (m_swipeToggleKey) {
+            m_swipeToggleKey->SetModifierActive(m_swipeEnabled);
+        }
 
         Refresh();
     }
@@ -84,39 +88,97 @@ void KeyboardView::UpdateGazePosition(float x, float y)
     float deltaMs = (currentTime - m_lastUpdateTime).ToDouble();
     m_lastUpdateTime = currentTime;
 
+    // Store previous position for exit direction detection
+    m_previousGazePosition = m_gazePosition;
+
     // Coordinates are already in keyboard-local space (converted by EyeOverlay)
     m_gazePosition = wxPoint2DDouble(x, y);
 
     // Find key at current position
     KeyButton* hoveredKey = FindKeyAtPosition(m_gazePosition);
 
-    // Handle swipe recording
-    if (m_recordingSwipe && m_inputMode == InputMode::Swipe) {
-        // Record point relative to keyboard
-        m_swipePath.push_back(std::make_pair(
-            static_cast<float>(m_gazePosition.m_x),
-            static_cast<float>(m_gazePosition.m_y)
-        ));
+    // Calculate swipe zone boundaries based on keyboard geometry
+    // Swipe zone: Rows 0-3 (character keys only, NOT including spacebar row)
+    wxSize clientSize = GetClientSize();
+    if (clientSize.GetWidth() > 0 && clientSize.GetHeight() > 0) {
+        // Calculate key size (same as UpdateKeyGeometries)
+        float availableHeight = clientSize.GetHeight() - m_keySpacing * 8;
+        float keyHeight = availableHeight / 7.0f;
+        float availableWidth = clientSize.GetWidth() - m_keySpacing * 13;
+        float keyWidth = availableWidth / 12.0f;
+        float keySize = std::min(keyWidth, keyHeight) * 1.2f;
+
+        // Swipe zone boundaries
+        float swipeZoneTop = 0.0f;  // Top of row 0
+        float swipeZoneBottom = 4.0f * (keySize + m_keySpacing);  // Top of spacebar row (row 4)
+        float swipeZoneLeft = 0.0f;
+        float swipeZoneRight = clientSize.GetWidth();
+
+        // Swipe detection based on actual keyboard geometry
+        if (m_swipeEnabled) {
+            bool insideSwipeZone = (m_gazePosition.m_y >= swipeZoneTop &&
+                                   m_gazePosition.m_y < swipeZoneBottom &&
+                                   m_gazePosition.m_x >= swipeZoneLeft &&
+                                   m_gazePosition.m_x <= swipeZoneRight);
+
+            bool wasInsideSwipeZone = (m_previousGazePosition.m_y >= swipeZoneTop &&
+                                      m_previousGazePosition.m_y < swipeZoneBottom &&
+                                      m_previousGazePosition.m_x >= swipeZoneLeft &&
+                                      m_previousGazePosition.m_x <= swipeZoneRight);
+
+            if (insideSwipeZone) {
+                // Inside swipe zone - start recording if not already
+                if (!m_recordingSwipe) {
+                    StartSwipeRecording();
+                }
+                // Record point
+                if (m_recordingSwipe) {
+                    m_swipePath.push_back(std::make_pair(
+                        static_cast<float>(m_gazePosition.m_x),
+                        static_cast<float>(m_gazePosition.m_y)
+                    ));
+                }
+            } else if (wasInsideSwipeZone && m_recordingSwipe) {
+                // Exiting swipe zone - determine direction
+                // Y axis: increases downward (0 at top, higher values at bottom)
+
+                if (m_gazePosition.m_y < swipeZoneTop) {
+                    // Exiting from TOP (going upward) - PREDICT WORD
+                    if (m_swipePath.size() > 5) {
+                        wxLogMessage("Swipe: Exiting from TOP - predicting word (%zu points)", m_swipePath.size());
+                        StopSwipeRecording();  // This will call OnSwipeCompleted callback
+                    } else {
+                        // Not enough points - cancel
+                        wxLogMessage("Swipe: Exiting from TOP but not enough points (%zu) - canceling", m_swipePath.size());
+                        m_recordingSwipe = false;
+                        m_swipePath.clear();
+                    }
+                } else {
+                    // Exiting from BOTTOM, LEFT, or RIGHT - CANCEL
+                    wxLogMessage("Swipe: Exiting from bottom/left/right - canceling (%zu points)", m_swipePath.size());
+                    m_recordingSwipe = false;
+                    m_swipePath.clear();
+                }
+            }
+        }
     }
 
-    // Handle dwell-time in letter-by-letter mode
-    if (m_inputMode == InputMode::LetterByLetter) {
-        if (hoveredKey != m_currentHoveredKey) {
-            // Hover changed
-            if (m_currentHoveredKey) {
-                m_currentHoveredKey->SetHovered(false);
-                m_currentHoveredKey->SetProgress(0.0f);
-            }
-
-            m_currentHoveredKey = hoveredKey;
-
-            if (m_currentHoveredKey) {
-                m_currentHoveredKey->SetHovered(true);
-            }
-        } else if (m_currentHoveredKey) {
-            // Continue hovering on same key
-            UpdateDwellProgress(m_currentHoveredKey, deltaMs);
+    // Handle dwell-time (LetterByLetter is ALWAYS active)
+    if (hoveredKey != m_currentHoveredKey) {
+        // Hover changed
+        if (m_currentHoveredKey) {
+            m_currentHoveredKey->SetHovered(false);
+            m_currentHoveredKey->SetProgress(0.0f);
         }
+
+        m_currentHoveredKey = hoveredKey;
+
+        if (m_currentHoveredKey) {
+            m_currentHoveredKey->SetHovered(true);
+        }
+    } else if (m_currentHoveredKey) {
+        // Continue hovering on same key
+        UpdateDwellProgress(m_currentHoveredKey, deltaMs);
     }
 
     Refresh();
@@ -124,7 +186,7 @@ void KeyboardView::UpdateGazePosition(float x, float y)
 
 void KeyboardView::StartSwipeRecording()
 {
-    if (m_inputMode == InputMode::Swipe) {
+    if (m_swipeEnabled) {
         m_recordingSwipe = true;
         m_swipePath.clear();
     }
@@ -138,32 +200,13 @@ void KeyboardView::StopSwipeRecording()
         if (!m_swipePath.empty() && OnSwipeCompleted) {
             OnSwipeCompleted(m_swipePath);
         }
+        m_swipePath.clear();
     }
 }
 
 void KeyboardView::ClearSwipePath()
 {
     m_swipePath.clear();
-    Refresh();
-}
-
-void KeyboardView::HighlightKey(wxChar character, bool highlight)
-{
-    auto it = m_keyMap.find(character);
-    if (it != m_keyMap.end()) {
-        it->second->SetHighlighted(highlight);
-        Refresh();
-    }
-}
-
-void KeyboardView::ClearHighlights()
-{
-    for (KeyButton* key : m_keys) {
-        key->SetHighlighted(false);
-    }
-    if (m_spaceKey) {
-        m_spaceKey->SetHighlighted(false);
-    }
     Refresh();
 }
 
@@ -222,7 +265,7 @@ void KeyboardView::RenderToDC(wxDC& dc)
     }
 
     // Draw swipe path
-    if (!m_swipePath.empty() && m_inputMode == InputMode::Swipe) {
+    if (!m_swipePath.empty() && m_swipeEnabled) {
         dc.SetPen(wxPen(m_swipePathColor, 3));
         dc.SetBrush(*wxTRANSPARENT_BRUSH);
 
@@ -248,6 +291,11 @@ void KeyboardView::RenderToDC(wxDC& dc)
                 2
             );
         }
+    }
+
+    // Draw swipe toggle key
+    if (m_swipeToggleKey) {
+        m_swipeToggleKey->Draw(dc, m_normalColor, m_hoverColor, m_progressColor, m_shiftActive, m_capsLockActive, m_altgrActive);
     }
 
     // Draw gaze cursor
@@ -361,9 +409,9 @@ void KeyboardView::CreateKeyboard()
             const KeyDef& keyDef = layout[row][col];
             KeyButton* key = new KeyButton(keyDef.primary, keyDef.shift, keyDef.altgr, wxRect2DDouble());
 
-            // Set up activation callback
+            // Set up activation callback (LetterByLetter is always active)
             key->OnActivated = [this, key]() {
-                if (m_inputMode == InputMode::LetterByLetter && OnLetterSelected) {
+                if (OnLetterSelected) {
                     wxChar effectiveChar = GetEffectiveCharacter(key);
                     if (effectiveChar != 0) {
                         OnLetterSelected(effectiveChar);
@@ -387,7 +435,7 @@ void KeyboardView::CreateKeyboard()
     // Create space bar
     m_spaceKey = new KeyButton(L' ', L' ', L'\0', wxRect2DDouble());
     m_spaceKey->OnActivated = [this]() {
-        if (m_inputMode == InputMode::LetterByLetter && OnSpacePressed) {
+        if (OnSpacePressed) {
             OnSpacePressed();
             if (m_currentHoveredKey == m_spaceKey) {
                 m_spaceKey->SetProgress(0.0f);
@@ -398,37 +446,31 @@ void KeyboardView::CreateKeyboard()
     // Create modifier keys
     m_shiftKey = new KeyButton(KeyType::Shift, wxT("Shift"), wxRect2DDouble());
     m_shiftKey->OnActivated = [this]() {
-        if (m_inputMode == InputMode::LetterByLetter) {
-            ToggleShift();
-            if (m_currentHoveredKey == m_shiftKey) {
-                m_shiftKey->SetProgress(0.0f);
-            }
+        ToggleShift();
+        if (m_currentHoveredKey == m_shiftKey) {
+            m_shiftKey->SetProgress(0.0f);
         }
     };
 
     m_capsLockKey = new KeyButton(KeyType::CapsLock, wxT("Caps"), wxRect2DDouble());
     m_capsLockKey->OnActivated = [this]() {
-        if (m_inputMode == InputMode::LetterByLetter) {
-            ToggleCapsLock();
-            if (m_currentHoveredKey == m_capsLockKey) {
-                m_capsLockKey->SetProgress(0.0f);
-            }
+        ToggleCapsLock();
+        if (m_currentHoveredKey == m_capsLockKey) {
+            m_capsLockKey->SetProgress(0.0f);
         }
     };
 
     m_altgrKey = new KeyButton(KeyType::AltGr, wxT("AltGr"), wxRect2DDouble());
     m_altgrKey->OnActivated = [this]() {
-        if (m_inputMode == InputMode::LetterByLetter) {
-            ToggleAltGr();
-            if (m_currentHoveredKey == m_altgrKey) {
-                m_altgrKey->SetProgress(0.0f);
-            }
+        ToggleAltGr();
+        if (m_currentHoveredKey == m_altgrKey) {
+            m_altgrKey->SetProgress(0.0f);
         }
     };
 
     m_backspaceKey = new KeyButton(KeyType::Backspace, wxT("⌫"), wxRect2DDouble());
     m_backspaceKey->OnActivated = [this]() {
-        if (m_inputMode == InputMode::LetterByLetter && OnBackspacePressed) {
+        if (OnBackspacePressed) {
             OnBackspacePressed();
             if (m_currentHoveredKey == m_backspaceKey) {
                 m_backspaceKey->SetProgress(0.0f);
@@ -438,13 +480,25 @@ void KeyboardView::CreateKeyboard()
 
     m_enterKey = new KeyButton(KeyType::Enter, wxT("Enter"), wxRect2DDouble());
     m_enterKey->OnActivated = [this]() {
-        if (m_inputMode == InputMode::LetterByLetter && OnEnterPressed) {
+        if (OnEnterPressed) {
             OnEnterPressed();
             if (m_currentHoveredKey == m_enterKey) {
                 m_enterKey->SetProgress(0.0f);
             }
         }
     };
+
+    // Create swipe toggle key
+    m_swipeToggleKey = new KeyButton(KeyType::Function, wxT("Swipe"), wxRect2DDouble());
+    m_swipeToggleKey->OnActivated = [this]() {
+        SetSwipeEnabled(!m_swipeEnabled);
+        if (m_currentHoveredKey == m_swipeToggleKey) {
+            m_swipeToggleKey->SetProgress(0.0f);
+        }
+    };
+    // apply default value based on m_swipeEnabled
+    m_swipeToggleKey->SetModifierActive(m_swipeEnabled);
+    m_recordingSwipe = m_swipeEnabled;
 
     UpdateKeyGeometries();
 }
@@ -465,9 +519,9 @@ void KeyboardView::UpdateKeyGeometries()
     float availableWidth = clientSize.GetWidth() - m_keySpacing * 13;
     float keyWidth = availableWidth / 12.0f;
 
-    // Need space for 6 rows (4 regular + 1 space/modifiers + padding)
-    float availableHeight = clientSize.GetHeight() - m_keySpacing * 7;
-    float keyHeight = availableHeight / 6.0f;
+    // Need space for 7 rows (4 regular + 1 space/modifiers + 1 swipe toggle + padding)
+    float availableHeight = clientSize.GetHeight() - m_keySpacing * 8;
+    float keyHeight = availableHeight / 7.0f;
 
     // Increase key size by 20% for better multi-character visibility
     float keySize = std::min(keyWidth, keyHeight) * 1.2f;
@@ -538,6 +592,15 @@ void KeyboardView::UpdateKeyGeometries()
         wxRect2DDouble rect(x, row4Y, width, keySize);
         m_enterKey->SetGeometry(rect);
     }
+
+    // Row 5: Swipe toggle key (centered at bottom)
+    float row5Y = 5 * (keySize + m_keySpacing);
+    if (m_swipeToggleKey) {
+        float toggleWidth = 3 * keySize + 2 * m_keySpacing;
+        float toggleX = (clientSize.GetWidth() - toggleWidth) / 2.0f;
+        wxRect2DDouble rect(toggleX, row5Y, toggleWidth, keySize);
+        m_swipeToggleKey->SetGeometry(rect);
+    }
 }
 
 void KeyboardView::UpdateDwellProgress(KeyButton *key, float deltaMs)
@@ -571,6 +634,11 @@ KeyButton* KeyboardView::FindKeyAtPosition(const wxPoint2DDouble &pos)
     }
     if (m_enterKey && m_enterKey->Contains(pos)) {
         return m_enterKey;
+    }
+
+    // Check swipe toggle key
+    if (m_swipeToggleKey && m_swipeToggleKey->Contains(pos)) {
+        return m_swipeToggleKey;
     }
 
     // Check regular keys
@@ -647,7 +715,6 @@ std::vector<KeyRenderInfo> KeyboardView::GetKeysForRendering() const
         info.geometry = key->GetGeometry();
         info.progress = key->GetProgress();
         info.isHovered = key->IsHovered();
-        info.isHighlighted = key->IsHighlighted();
         info.isModifierActive = key->IsModifierActive();
         info.keyType = key->GetKeyType();
 
@@ -698,6 +765,11 @@ std::vector<KeyRenderInfo> KeyboardView::GetKeysForRendering() const
     // Add space bar
     if (m_spaceKey) {
         renderInfo.push_back(makeRenderInfo(m_spaceKey));
+    }
+
+    // Add swipe toggle key
+    if (m_swipeToggleKey) {
+        renderInfo.push_back(makeRenderInfo(m_swipeToggleKey));
     }
 
     // Add modifier keys

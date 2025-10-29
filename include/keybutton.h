@@ -14,7 +14,8 @@ enum class KeyType {
     CapsLock,      // Caps Lock modifier
     AltGr,         // AltGr modifier
     Backspace,     // Backspace key
-    Enter          // Enter key
+    Enter,         // Enter key
+    Function       // Function key (e.g., swipe toggle)
 };
 
 /**
@@ -45,14 +46,12 @@ public:
     wxRect2DDouble GetGeometry() const { return m_geometry; }
     bool IsHovered() const { return m_hovered; }
     float GetProgress() const { return m_progress; }
-    bool IsHighlighted() const { return m_highlighted; }
     bool IsModifierActive() const { return m_modifierActive; }
 
     // Setters
     void SetGeometry(const wxRect2DDouble& rect) { m_geometry = rect; }
     void SetHovered(bool hovered);
     void SetProgress(float progress); // 0.0 to 1.0
-    void SetHighlighted(bool highlighted) { m_highlighted = highlighted; }
     void SetModifierActive(bool active) { m_modifierActive = active; }
 
     // Drawing
@@ -74,7 +73,6 @@ private:
     wxRect2DDouble m_geometry;
     bool m_hovered;
     float m_progress; // 0.0 to 1.0 for dwell-time progress
-    bool m_highlighted; // For swipe path highlighting
     bool m_modifierActive; // For visual feedback on modifier keys
 };
 

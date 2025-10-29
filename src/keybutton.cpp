@@ -11,7 +11,6 @@ KeyButton::KeyButton(wxChar primary, wxChar shift, wxChar altgr, const wxRect2DD
     , m_geometry(geometry)
     , m_hovered(false)
     , m_progress(0.0f)
-    , m_highlighted(false)
     , m_modifierActive(false)
     , OnActivated(nullptr)
 {
@@ -26,7 +25,6 @@ KeyButton::KeyButton(KeyType type, const wxString& label, const wxRect2DDouble& 
     , m_geometry(geometry)
     , m_hovered(false)
     , m_progress(0.0f)
-    , m_highlighted(false)
     , m_modifierActive(false)
     , OnActivated(nullptr)
 {
@@ -57,7 +55,7 @@ void KeyButton::Draw(wxDC& dc, const wxColour& normalColor, const wxColour& hove
 {
     // Determine background color based on state
     wxColour bgColor = normalColor;
-    if (m_hovered || m_highlighted) {
+    if (m_hovered) {
         bgColor = hoverColor;
     }
 

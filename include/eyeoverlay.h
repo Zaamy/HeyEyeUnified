@@ -39,7 +39,6 @@ protected:
     void OnPaint(wxPaintEvent& event);
     void OnEraseBackground(wxEraseEvent& event);
     void OnSize(wxSizeEvent& event);
-    void OnKeyDown(wxKeyEvent& event);
     void OnClose(wxCloseEvent& event);
 
 private:
@@ -53,9 +52,6 @@ private:
     void OnTextChanged(const wxString& text);
 
     // Button handlers
-    void OnToggleInputMode(wxCommandEvent& event);
-    void OnToggleKeyboard(wxCommandEvent& event);
-    void OnDeleteLastWord(wxCommandEvent& event);
     void OnSpeak(wxCommandEvent& event);
 
     void SetupUI();

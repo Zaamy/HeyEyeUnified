@@ -10,14 +10,6 @@
 #include "keybutton.h"
 
 /**
- * @brief Input modes for the keyboard
- */
-enum class InputMode {
-    LetterByLetter,  // Dwell-based selection of individual letters
-    Swipe            // ML-based swipe gesture recognition
-};
-
-/**
  * @brief Key rendering information for manual rendering on overlay
  */
 struct KeyRenderInfo {
@@ -27,7 +19,6 @@ struct KeyRenderInfo {
     wxString altgrLabel;          // AltGr character (top-right)
     float progress;               // Dwell progress (0.0 to 1.0)
     bool isHovered;               // Currently hovered by gaze
-    bool isHighlighted;           // Highlighted (for swipe visualization)
     bool isModifierActive;        // For modifier keys (shift/caps/altgr)
     KeyType keyType;              // Type of key
 
@@ -46,7 +37,6 @@ struct KeyRenderInfo {
         , altgrLabel()
         , progress(0.0f)
         , isHovered(false)
-        , isHighlighted(false)
         , isModifierActive(false)
         , keyType(KeyType::Character)
         , activeLayer(Primary)
@@ -58,7 +48,8 @@ struct KeyRenderInfo {
  *
  * Features:
  * - AZERTY French keyboard layout
- * - Dual input modes: letter-by-letter dwell and swipe ML
+ * - Letter-by-letter dwell (always active)
+ * - Optional swipe ML (can be enabled/disabled)
  * - Gaze position tracking and visualization
  * - Swipe path recording and rendering
  */
@@ -68,23 +59,17 @@ public:
     explicit KeyboardView(wxWindow *parent);
     ~KeyboardView();
 
-    // Input mode management
-    InputMode GetInputMode() const { return m_inputMode; }
-    void SetInputMode(InputMode mode);
+    // Swipe mode management (LetterByLetter is always active)
+    bool IsSwipeEnabled() const { return m_swipeEnabled; }
+    void SetSwipeEnabled(bool enabled);
 
     // Gaze tracking
     void UpdateGazePosition(float x, float y);
 
-    // Swipe recording
-    void StartSwipeRecording();
-    void StopSwipeRecording();
+    // Swipe recording (automatically managed by vertical position)
     bool IsRecordingSwipe() const { return m_recordingSwipe; }
     const std::vector<std::pair<float, float>>& GetSwipePath() const { return m_swipePath; }
     void ClearSwipePath();
-
-    // Key highlighting (for ML result visualization)
-    void HighlightKey(wxChar character, bool highlight = true);
-    void ClearHighlights();
 
     // Settings
     void SetDwellTime(int milliseconds) { m_dwellTimeMs = milliseconds; }
@@ -125,8 +110,12 @@ private:
     void ToggleAltGr();
     wxChar GetEffectiveCharacter(KeyButton* key);
 
-    // Input mode
-    InputMode m_inputMode;
+    // Swipe detection helpers
+    void StartSwipeRecording();
+    void StopSwipeRecording();
+
+    // Swipe mode (LetterByLetter is always active)
+    bool m_swipeEnabled;
 
     // Keyboard layout
     std::vector<KeyButton*> m_keys;
@@ -136,6 +125,7 @@ private:
     KeyButton* m_altgrKey;
     KeyButton* m_backspaceKey;
     KeyButton* m_enterKey;
+    KeyButton* m_swipeToggleKey;
     std::map<wxChar, KeyButton*> m_keyMap;
 
     // Modifier states
@@ -154,6 +144,7 @@ private:
     // Swipe recording
     bool m_recordingSwipe;
     std::vector<std::pair<float, float>> m_swipePath;
+    wxPoint2DDouble m_previousGazePosition;  // Track previous position for exit detection
 
     // Visual settings
     wxColour m_normalColor;
