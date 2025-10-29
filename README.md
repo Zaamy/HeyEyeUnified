@@ -221,7 +221,6 @@ The application can run without a Tobii device:
 
 1. Set `m_manualMode = true` in `GazeTracker`
 2. Use mouse to simulate gaze (enable mouse tracking)
-3. Test keyboard shortcuts and mode switching
 
 ## Known Limitations
 

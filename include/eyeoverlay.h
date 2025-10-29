@@ -48,6 +48,8 @@ private:
     void OnLetterSelected(wxChar letter);
     void OnSwipeCompleted(const std::vector<std::pair<float, float>>& path);
     void OnSpacePressed();
+    void OnBackspacePressed();
+    void OnEnterPressed();
     void OnTextChanged(const wxString& text);
 
     // Button handlers
@@ -67,14 +69,16 @@ private:
     // Circular buttons (HeyEyeControl style)
     std::vector<std::unique_ptr<CircularButton>> m_visibleButtons;
 
-    // Keyboard key tracking
+    // Workflow button tracking (UNDO, SUBMIT, SUBMIT_RETURN)
+    // Note: Main keyboard keys are managed by m_keyboard (KeyboardView)
+    // These are separate workflow buttons for text submission
     struct KeyboardKey {
         wxString label;
         wxRect bounds;
         float dwellProgress;  // 0.0 to 1.0
         KeyboardKey(const wxString& lbl, const wxRect& r) : label(lbl), bounds(r), dwellProgress(0.0f) {}
     };
-    std::vector<KeyboardKey> m_keyboardKeys;
+    std::vector<KeyboardKey> m_keyboardKeys;  // Workflow buttons only
 
     // Gaze tracking state
     bool m_visible;  // Like HeyEyeControl - when false, window doesn't draw anything
@@ -118,8 +122,8 @@ private:
     void ClearAllButtons();
     bool UpdateDwellDetection(float x, float y, uint64_t timestamp);  // Returns true if visual state changed
     void DrawButtonWithGC(wxGraphicsContext* gc, CircularButton* button, const wxColour& color);
-    void DrawKeyboardWithGC(wxGraphicsContext* gc, const wxColour& color);  // Draw keyboard on overlay
-    void HandleKeyActivation(const wxString& keyLabel);  // Handle keyboard key press
+    void DrawKeyboardWithGC(wxGraphicsContext* gc, const wxColour& color);  // Draw keyboard from KeyboardView + workflow buttons
+    void HandleKeyActivation(const wxString& keyLabel);  // Handle workflow button press (UNDO/SUBMIT)
     void EnsureOnTop();  // Bring window to topmost position (throttled)
     bool IsTextCursorAtPosition(int x, int y);  // Check if cursor at position is I-beam (text edit cursor)
 

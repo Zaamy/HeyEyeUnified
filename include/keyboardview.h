@@ -18,6 +18,29 @@ enum class InputMode {
 };
 
 /**
+ * @brief Key rendering information for manual rendering on overlay
+ */
+struct KeyRenderInfo {
+    wxRect2DDouble geometry;      // Key position and size
+    wxString label;               // Display label
+    float progress;               // Dwell progress (0.0 to 1.0)
+    bool isHovered;               // Currently hovered by gaze
+    bool isHighlighted;           // Highlighted (for swipe visualization)
+    bool isModifierActive;        // For modifier keys (shift/caps/altgr)
+    KeyType keyType;              // Type of key
+
+    KeyRenderInfo()
+        : geometry()
+        , label()
+        , progress(0.0f)
+        , isHovered(false)
+        , isHighlighted(false)
+        , isModifierActive(false)
+        , keyType(KeyType::Character)
+    {}
+};
+
+/**
  * @brief Visual keyboard widget managing all keys and input modes
  *
  * Features:
@@ -54,13 +77,26 @@ public:
     void SetDwellTime(int milliseconds) { m_dwellTimeMs = milliseconds; }
     int GetDwellTime() const { return m_dwellTimeMs; }
 
+    // Modifier state
+    bool IsShiftActive() const { return m_shiftActive; }
+    bool IsCapsLockActive() const { return m_capsLockActive; }
+    bool IsAltGrActive() const { return m_altgrActive; }
+
     // Get keyboard coordinates for DTW computation
     std::map<wxChar, std::pair<float, float>> GetKeyboardCoordinates() const;
+
+    // Render keyboard to a DC (for manual rendering on overlay)
+    void RenderToDC(wxDC& dc);
+
+    // Get all keys for manual rendering with wxGraphicsContext
+    std::vector<KeyRenderInfo> GetKeysForRendering() const;
 
     // Callbacks (replace Qt signals)
     std::function<void(wxChar)> OnLetterSelected;
     std::function<void(const std::vector<std::pair<float, float>>&)> OnSwipeCompleted;
     std::function<void()> OnSpacePressed;
+    std::function<void()> OnBackspacePressed;
+    std::function<void()> OnEnterPressed;
 
 protected:
     void OnPaint(wxPaintEvent& event);
@@ -71,6 +107,10 @@ private:
     void UpdateKeyGeometries();
     void UpdateDwellProgress(KeyButton *key, float deltaMs);
     KeyButton* FindKeyAtPosition(const wxPoint2DDouble &pos);
+    void ToggleShift();
+    void ToggleCapsLock();
+    void ToggleAltGr();
+    wxChar GetEffectiveCharacter(KeyButton* key);
 
     // Input mode
     InputMode m_inputMode;
@@ -78,8 +118,17 @@ private:
     // Keyboard layout
     std::vector<KeyButton*> m_keys;
     KeyButton* m_spaceKey;
+    KeyButton* m_shiftKey;
+    KeyButton* m_capsLockKey;
+    KeyButton* m_altgrKey;
+    KeyButton* m_backspaceKey;
+    KeyButton* m_enterKey;
     std::map<wxChar, KeyButton*> m_keyMap;
-    std::vector<wxString> m_keyboardLayout;
+
+    // Modifier states
+    bool m_shiftActive;
+    bool m_capsLockActive;
+    bool m_altgrActive;
 
     // Gaze tracking
     wxPoint2DDouble m_gazePosition;
