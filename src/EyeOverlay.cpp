@@ -1697,8 +1697,10 @@ bool EyeOverlay::UpdateDwellDetection(float x, float y, uint64_t timestamp)
         bool isStable = ((maxX - minX) < 30) && ((maxY - minY) < 30);
 
         if (isStable && m_timestampHistory.size() > 2) {
-            // Move cursor
-            SetCursorPos(m_gazePosition.m_x, m_gazePosition.m_y);
+            // Move cursor only if the button layer is not visible
+            if (!m_visible) {
+                SetCursorPos(m_gazePosition.m_x, m_gazePosition.m_y);
+            }
 
             // Update progress
             float oldProgress = m_dwellProgress;
