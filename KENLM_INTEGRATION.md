@@ -140,7 +140,7 @@ wxString bestWord = rankedCandidates[0].first;
 KenLM expects binary model files with `.bin` extension:
 - **Format**: KenLM binary (compiled with `build_binary` tool)
 - **Max Order**: Up to 6-gram (KENLM_MAX_ORDER=6)
-- **Example path**: `assets/kenlm_model.bin`
+- **Example path**: `assets/kenlm_model.arpa`
 
 ### Training Your Own Model
 

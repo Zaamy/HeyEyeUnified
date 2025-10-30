@@ -152,6 +152,7 @@ private:
     wxColour m_progressColor;
     wxColour m_swipePathColor;
     float m_keySpacing;
+    float m_keySize;  // Current key size for coordinate normalization
 
     wxDECLARE_EVENT_TABLE();
 };

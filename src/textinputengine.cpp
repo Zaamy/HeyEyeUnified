@@ -88,17 +88,22 @@ bool TextInputEngine::Initialize(const wxString& assetsPath)
     }
 
     // Load KenLM
-    wxString kenlmPath = assetsPath + wxT("/kenlm_model.bin");
+    wxString kenlmPath = assetsPath + wxT("/kenlm_model.arpa");
     if (wxFileName::Exists(kenlmPath) && !LoadKenLM(kenlmPath)) {
         wxLogWarning("Failed to load KenLM");
         return false;
     }
 
-    // Load LightGBM
-    wxString lgbmPath = assetsPath + wxT("/lightgbm_model.txt");
-    if (wxFileName::Exists(lgbmPath) && !LoadLightGBM(lgbmPath)) {
-        wxLogWarning("Failed to load LightGBM");
-        return false;
+    // Load LightGBM (optional)
+    wxString lgbmPath = assetsPath + wxT("/lightgbm_ranker.txt");
+    if (wxFileName::Exists(lgbmPath)) {
+        if (!LoadLightGBM(lgbmPath)) {
+            wxLogWarning("Failed to load LightGBM model");
+            // Don't fail initialization - LightGBM is optional
+        }
+    } else {
+        wxLogMessage("LightGBM model not found (optional): %s", lgbmPath);
+        wxLogMessage("Will use fallback scoring for word prediction");
     }
 
     m_initialized = true;
@@ -109,6 +114,28 @@ bool TextInputEngine::Initialize(const wxString& assetsPath)
 void TextInputEngine::AppendCharacter(wxChar c)
 {
     m_currentText << c;
+
+    // Update word history when space is added (for consistency)
+    if (c == wxT(' ')) {
+        // Extract the last completed word
+        wxString text_without_trailing_space = m_currentText;
+        if (text_without_trailing_space.EndsWith(wxT(" "))) {
+            text_without_trailing_space.RemoveLast();
+        }
+
+        int lastSpace = text_without_trailing_space.Find(' ', true);  // Find from end
+        wxString lastWord;
+        if (lastSpace != wxNOT_FOUND) {
+            lastWord = text_without_trailing_space.Mid(lastSpace + 1);
+        } else {
+            lastWord = text_without_trailing_space;
+        }
+
+        if (!lastWord.IsEmpty()) {
+            m_wordHistory.push_back(lastWord);
+        }
+    }
+
     if (OnTextChanged) {
         OnTextChanged(m_currentText);
     }
@@ -574,7 +601,52 @@ std::string TextInputEngine::RankCandidates(
         return "";
     }
 
-    // Step 1: Collect all candidate words and compute LM scores
+    // Step 1: Pre-compute initial LM state from current text
+    // This matches HeyEyeTracker behavior (gaze_track.cpp:169-183)
+    float initial_log_prob = 0.0f;
+    lm::ngram::State initial_state;
+    std::vector<wxString> context_words;
+
+#ifdef USE_KENLM
+    if (m_kenLM) {
+        lm::ngram::Model* model = static_cast<lm::ngram::Model*>(m_kenLM);
+        initial_state = model->BeginSentenceState();
+
+        // Extract word context from current text (split by spaces)
+        if (!m_currentText.IsEmpty()) {
+            wxArrayString all_words = wxSplit(m_currentText, ' ', '\0');
+            for (const wxString& word : all_words) {
+                if (!word.IsEmpty()) {
+                    context_words.push_back(word);
+                }
+            }
+
+            // Keep only last 4 words for context (same as HeyEyeTracker)
+            if (context_words.size() > 4) {
+                context_words.erase(context_words.begin(), context_words.end() - 4);
+            }
+
+            // Pre-compute LM state for context words (optimization)
+            try {
+                lm::ngram::State out_state;
+                for (const wxString& context_word : context_words) {
+                    std::string stdWord = context_word.ToStdString();
+                    lm::WordIndex wordIndex = model->GetVocabulary().Index(stdWord);
+                    lm::FullScoreReturn ret = model->FullScore(initial_state, wordIndex, out_state);
+                    initial_log_prob += ret.prob;
+                    initial_state = out_state;
+                }
+            } catch (const std::exception& e) {
+                wxLogWarning("Error pre-computing LM context: %s", e.what());
+                // Reset to begin state on error
+                initial_state = model->BeginSentenceState();
+                initial_log_prob = 0.0f;
+            }
+        }
+    }
+#endif
+
+    // Step 2: Collect all candidate words and compute LM scores
     std::vector<std::string> candidate_words;
     std::vector<float> lm_scores;
     std::set<std::string> seen_words;
@@ -594,33 +666,22 @@ std::string TextInputEngine::RankCandidates(
             }
             seen_words.insert(word);
 
-            // Compute LM score
-            float lm_score = 0.0f;
+            // Compute LM score starting from pre-computed context state
+            float lm_score = initial_log_prob;
 #ifdef USE_KENLM
             if (m_kenLM) {
                 try {
                     lm::ngram::Model* model = static_cast<lm::ngram::Model*>(m_kenLM);
-                    lm::ngram::State in_state = model->BeginSentenceState();
                     lm::ngram::State out_state;
 
-                    // Score previous words
-                    for (const wxString& prev_word : m_wordHistory) {
-                        std::string stdWord = prev_word.ToStdString();
-                        lm::WordIndex wordIndex = model->GetVocabulary().Index(stdWord);
-                        lm::FullScoreReturn ret = model->FullScore(in_state, wordIndex, out_state);
-                        lm_score += ret.prob;
-                        in_state = out_state;
-                    }
-
-                    // Score current candidate
+                    // Score the candidate word (starting from context state)
                     lm::WordIndex wordIndex = model->GetVocabulary().Index(word);
-                    lm::FullScoreReturn ret = model->FullScore(in_state, wordIndex, out_state);
+                    lm::FullScoreReturn ret = model->FullScore(initial_state, wordIndex, out_state);
                     lm_score += ret.prob;
-                    in_state = out_state;
 
                     // Add end of sentence score
                     lm::WordIndex endSentence = model->GetVocabulary().EndSentence();
-                    ret = model->FullScore(in_state, endSentence, out_state);
+                    ret = model->FullScore(out_state, endSentence, out_state);
                     lm_score += ret.prob;
                 } catch (const std::exception& e) {
                     wxLogWarning("Error evaluating LM for word '%s': %s", word.c_str(), e.what());

@@ -87,7 +87,7 @@ HeyEyeUnified/
 │   ├── swipe_encoder.onnx
 │   ├── vocab.msgpck
 │   ├── index.faiss
-│   └── lightgbm_model.txt
+│   └── lightgbm_ranker.txt
 └── HeyEyeUnified.pro         # Qt project file
 ```
 

@@ -24,12 +24,12 @@ This directory should contain the trained ML models and data files required for 
 
 ### Optional Models
 
-4. **lightgbm_model.txt** (~1-5 MB)
+4. **lightgbm_ranker.txt** (~1-5 MB)
    - LightGBM ranking model
    - Ranks candidate words based on 70+ features
    - Source: Train using `HeyEyeTracker/training/07-train_LightGBM.py`
 
-5. **kenlm_model.bin** (size varies, typically 100MB - 2GB)
+5. **kenlm_model.arpa** (size varies, typically 100MB - 2GB)
    - KenLM n-gram language model
    - Provides language model scores for word sequences
    - Train using KenLM tools on your corpus

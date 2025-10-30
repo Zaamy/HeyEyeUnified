@@ -32,6 +32,7 @@ KeyboardView::KeyboardView(wxWindow *parent)
     , m_progressColor(0, 150, 255)
     , m_swipePathColor(255, 100, 100)
     , m_keySpacing(4.0f)
+    , m_keySize(50.0f)  // Initial value, will be updated in UpdateKeyGeometries
     , OnLetterSelected(nullptr)
     , OnSwipeCompleted(nullptr)
     , OnSpacePressed(nullptr)
@@ -131,12 +132,16 @@ void KeyboardView::UpdateGazePosition(float x, float y)
                 if (!m_recordingSwipe) {
                     StartSwipeRecording();
                 }
-                // Record point
+                // Record point with normalization (same as HeyEyeTracker)
                 if (m_recordingSwipe) {
-                    m_swipePath.push_back(std::make_pair(
-                        static_cast<float>(m_gazePosition.m_x),
-                        static_cast<float>(m_gazePosition.m_y)
-                    ));
+                    // Normalize coordinates to match the model's expected input range
+                    // Original HeyEyeTracker formula:
+                    // x_neural_net = x / (13 * key_size) * 260 - 10
+                    // y_neural_net = 100 - y / (5 * key_size) * 100
+                    float x_normalized = m_gazePosition.m_x / (13.0f * m_keySize) * 260.0f - 10.0f;
+                    float y_normalized = 100.0f - m_gazePosition.m_y / (5.0f * m_keySize) * 100.0f;
+
+                    m_swipePath.push_back(std::make_pair(x_normalized, y_normalized));
                 }
             } else if (wasInsideSwipeZone && m_recordingSwipe) {
                 // Exiting swipe zone - determine direction
@@ -269,27 +274,27 @@ void KeyboardView::RenderToDC(wxDC& dc)
         dc.SetPen(wxPen(m_swipePathColor, 3));
         dc.SetBrush(*wxTRANSPARENT_BRUSH);
 
+        // Helper lambda to de-normalize coordinates for visualization
+        // Inverse of: x_norm = x / (13 * keySize) * 260 - 10
+        //             y_norm = 100 - y / (5 * keySize) * 100
+        auto denormalize = [this](float x_norm, float y_norm) -> wxPoint {
+            float x_pixel = (x_norm + 10.0f) / 260.0f * (13.0f * m_keySize);
+            float y_pixel = (100.0f - y_norm) / 100.0f * (5.0f * m_keySize);
+            return wxPoint(static_cast<int>(x_pixel), static_cast<int>(y_pixel));
+        };
+
         // Draw lines between points
         for (size_t i = 1; i < m_swipePath.size(); ++i) {
-            wxPoint p1(
-                static_cast<int>(m_swipePath[i - 1].first),
-                static_cast<int>(m_swipePath[i - 1].second)
-            );
-            wxPoint p2(
-                static_cast<int>(m_swipePath[i].first),
-                static_cast<int>(m_swipePath[i].second)
-            );
+            wxPoint p1 = denormalize(m_swipePath[i - 1].first, m_swipePath[i - 1].second);
+            wxPoint p2 = denormalize(m_swipePath[i].first, m_swipePath[i].second);
             dc.DrawLine(p1, p2);
         }
 
         // Draw dots at each point
         dc.SetBrush(wxBrush(m_swipePathColor));
         for (const auto& point : m_swipePath) {
-            dc.DrawCircle(
-                static_cast<int>(point.first),
-                static_cast<int>(point.second),
-                2
-            );
+            wxPoint p = denormalize(point.first, point.second);
+            dc.DrawCircle(p.x, p.y, 2);
         }
     }
 
@@ -525,6 +530,7 @@ void KeyboardView::UpdateKeyGeometries()
 
     // Increase key size by 20% for better multi-character visibility
     float keySize = std::min(keyWidth, keyHeight) * 1.2f;
+    m_keySize = keySize;  // Store for coordinate normalization
 
     // Position regular keys in 4 rows
     size_t keyIndex = 0;

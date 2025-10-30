@@ -22,15 +22,15 @@ From `D:\workspace\HeyEye\to_combined\HeyEyeTracker\assets\` to `D:\workspace\He
    - Size: ~tens of MB
    - Required for: Fast vector similarity search
 
-5. **kenlm_model.bin** (KenLM language model - optional)
+5. **kenlm_model.arpa** (KenLM language model - optional)
    - Location: You need to provide your own KenLM model
    - Required for: Language model scoring
    - Note: Not in HeyEyeTracker assets, needs separate training
 
-6. **lightgbm_model.txt** (LightGBM ranker model - optional)
+6. **lightgbm_ranker.txt** (LightGBM ranker model - optional)
    - Location: You need to provide your own LightGBM model
    - Required for: Final ranking of word candidates
-   - Note: Train using `to_combined/HeyEyeTracker/training/` scripts
+   - Note: Train using `to_combined/HeyEyeTracker/training/` scripts or copy from HeyEyeTracker assets
 
 ## Copy Commands (Windows)
 
