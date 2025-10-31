@@ -4,6 +4,8 @@
 #include <wx/dcscreen.h>
 #include <wx/rawbmp.h>
 #include <wx/graphics.h>
+#include <wx/stdpaths.h>
+#include <wx/filename.h>
 #include <cmath>      // For std::sqrt
 #include <map>        // For std::map
 #include <cctype>     // For toupper
@@ -37,6 +39,9 @@ EyeOverlay::EyeOverlay(GazeTracker* gazeTracker, wxWindow *parent)
     , m_keyboard(nullptr)
     , m_textEngine(nullptr)
     , m_settings(nullptr)
+#ifdef USE_ESPEAK
+    , m_espeakEngine(nullptr)
+#endif
     , m_visible(true)
     , m_keyboardVisible(false)
     , m_gazePosition(0, 0)
@@ -111,6 +116,39 @@ EyeOverlay::EyeOverlay(GazeTracker* gazeTracker, wxWindow *parent)
         OnTextChanged(text);
     };
 
+    // Initialize espeak engine
+#ifdef USE_ESPEAK
+    m_espeakEngine = new ESpeakEngine();
+    // Try to find espeak-ng-data directory
+    wxString espeakDataPath;
+
+    // Check in executable directory first
+    wxString exePath = wxStandardPaths::Get().GetExecutablePath();
+    wxFileName exeFile(exePath);
+    wxString exeDir = exeFile.GetPath();
+
+    // Try relative to executable
+    if (wxDirExists(exeDir + "/espeak-ng-data")) {
+        espeakDataPath = exeDir + "/espeak-ng-data";
+    }
+    // Try parent directory (for development builds)
+    else if (wxDirExists(exeDir + "/../espeak-ng-data")) {
+        espeakDataPath = exeDir + "/../espeak-ng-data";
+    }
+
+    if (!espeakDataPath.IsEmpty()) {
+        if (m_espeakEngine->Initialize(espeakDataPath)) {
+            wxLogMessage("ESpeakEngine initialized successfully with data path: %s", espeakDataPath);
+        } else {
+            wxLogWarning("Failed to initialize ESpeakEngine");
+        }
+    } else {
+        wxLogWarning("Could not find espeak-ng-data directory");
+    }
+#else
+    wxLogMessage("ESpeakEngine disabled (USE_ESPEAK not defined)");
+#endif
+
     // Fullscreen on current display
     wxDisplay display(wxDisplay::GetFromPoint(wxGetMousePosition()));
     wxRect screenRect = display.GetGeometry();
@@ -139,6 +177,14 @@ EyeOverlay::~EyeOverlay()
         delete m_settings;
         m_settings = nullptr;
     }
+
+    // Cleanup espeak engine
+#ifdef USE_ESPEAK
+    if (m_espeakEngine) {
+        delete m_espeakEngine;
+        m_espeakEngine = nullptr;
+    }
+#endif
 }
 
 #ifdef __WXMSW__
@@ -891,6 +937,24 @@ void EyeOverlay::OnEnterPressed()
     }
 }
 
+void EyeOverlay::OnSpeakPressed()
+{
+    wxLogMessage("Speak button pressed via gaze dwell");
+#ifdef USE_ESPEAK
+    if (m_textEngine && m_espeakEngine) {
+        wxString text = m_textEngine->GetCurrentText();
+        if (!text.IsEmpty()) {
+            wxLogMessage("Speaking text: %s", text);
+            m_espeakEngine->Speak(text);
+        } else {
+            wxLogWarning("No text to speak");
+        }
+    }
+#else
+    wxLogWarning("ESpeakEngine not available (USE_ESPEAK not defined)");
+#endif
+}
+
 void EyeOverlay::OnTextChanged(const wxString& text)
 {
     // Text display removed - no longer using wxStaticText overlay
@@ -901,8 +965,8 @@ void EyeOverlay::OnTextChanged(const wxString& text)
 void EyeOverlay::OnSpeak(wxCommandEvent& event)
 {
     wxUnusedVar(event);
-    // TODO: Integrate espeak-ng for text-to-speech
-    wxLogMessage("Speak: %s", m_textEngine->GetCurrentText());
+    // Call the same handler as gaze-based speak
+    OnSpeakPressed();
 }
 
 void EyeOverlay::SetupUI()
@@ -927,6 +991,9 @@ void EyeOverlay::SetupUI()
     };
     m_keyboard->OnEnterPressed = [this]() {
         OnEnterPressed();
+    };
+    m_keyboard->OnSpeakPressed = [this]() {
+        OnSpeakPressed();
     };
 }
 

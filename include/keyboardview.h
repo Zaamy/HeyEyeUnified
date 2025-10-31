@@ -95,6 +95,7 @@ public:
     std::function<void()> OnSpacePressed;
     std::function<void()> OnBackspacePressed;
     std::function<void()> OnEnterPressed;
+    std::function<void()> OnSpeakPressed;
 
 protected:
     void OnPaint(wxPaintEvent& event);
@@ -126,6 +127,7 @@ private:
     KeyButton* m_backspaceKey;
     KeyButton* m_enterKey;
     KeyButton* m_swipeToggleKey;
+    KeyButton* m_speakKey;
     std::map<wxChar, KeyButton*> m_keyMap;
 
     // Modifier states

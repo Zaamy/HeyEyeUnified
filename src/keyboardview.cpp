@@ -18,6 +18,7 @@ KeyboardView::KeyboardView(wxWindow *parent)
     , m_backspaceKey(nullptr)
     , m_enterKey(nullptr)
     , m_swipeToggleKey(nullptr)
+    , m_speakKey(nullptr)
     , m_shiftActive(false)
     , m_capsLockActive(false)
     , m_altgrActive(false)
@@ -38,6 +39,7 @@ KeyboardView::KeyboardView(wxWindow *parent)
     , OnSpacePressed(nullptr)
     , OnBackspacePressed(nullptr)
     , OnEnterPressed(nullptr)
+    , OnSpeakPressed(nullptr)
 {
     // Set background color (dark gray)
     SetBackgroundColour(wxColour(50, 50, 50));
@@ -61,6 +63,7 @@ KeyboardView::~KeyboardView()
     delete m_backspaceKey;
     delete m_enterKey;
     delete m_swipeToggleKey;
+    delete m_speakKey;
 }
 
 void KeyboardView::SetSwipeEnabled(bool enabled)
@@ -303,6 +306,11 @@ void KeyboardView::RenderToDC(wxDC& dc)
         m_swipeToggleKey->Draw(dc, m_normalColor, m_hoverColor, m_progressColor, m_shiftActive, m_capsLockActive, m_altgrActive);
     }
 
+    // Draw speak key
+    if (m_speakKey) {
+        m_speakKey->Draw(dc, m_normalColor, m_hoverColor, m_progressColor, m_shiftActive, m_capsLockActive, m_altgrActive);
+    }
+
     // Draw gaze cursor
     dc.SetPen(*wxTRANSPARENT_PEN);
     dc.SetBrush(wxBrush(wxColour(255, 0, 0, 150)));
@@ -505,6 +513,17 @@ void KeyboardView::CreateKeyboard()
     m_swipeToggleKey->SetModifierActive(m_swipeEnabled);
     m_recordingSwipe = m_swipeEnabled;
 
+    // Create speak key
+    m_speakKey = new KeyButton(KeyType::Function, wxT("Speak"), wxRect2DDouble());
+    m_speakKey->OnActivated = [this]() {
+        if (OnSpeakPressed) {
+            OnSpeakPressed();
+            if (m_currentHoveredKey == m_speakKey) {
+                m_speakKey->SetProgress(0.0f);
+            }
+        }
+    };
+
     UpdateKeyGeometries();
 }
 
@@ -599,13 +618,21 @@ void KeyboardView::UpdateKeyGeometries()
         m_enterKey->SetGeometry(rect);
     }
 
-    // Row 5: Swipe toggle key (centered at bottom)
+    // Row 5: Swipe toggle and Speak keys (centered at bottom)
     float row5Y = 5 * (keySize + m_keySpacing);
+    float buttonWidth = 2.5f * keySize + 1.5f * m_keySpacing;
+    float totalWidth = 2 * buttonWidth + m_keySpacing;
+    float startX = (clientSize.GetWidth() - totalWidth) / 2.0f;
+
     if (m_swipeToggleKey) {
-        float toggleWidth = 3 * keySize + 2 * m_keySpacing;
-        float toggleX = (clientSize.GetWidth() - toggleWidth) / 2.0f;
-        wxRect2DDouble rect(toggleX, row5Y, toggleWidth, keySize);
+        wxRect2DDouble rect(startX, row5Y, buttonWidth, keySize);
         m_swipeToggleKey->SetGeometry(rect);
+    }
+
+    if (m_speakKey) {
+        float speakX = startX + buttonWidth + m_keySpacing;
+        wxRect2DDouble rect(speakX, row5Y, buttonWidth, keySize);
+        m_speakKey->SetGeometry(rect);
     }
 }
 
@@ -645,6 +672,11 @@ KeyButton* KeyboardView::FindKeyAtPosition(const wxPoint2DDouble &pos)
     // Check swipe toggle key
     if (m_swipeToggleKey && m_swipeToggleKey->Contains(pos)) {
         return m_swipeToggleKey;
+    }
+
+    // Check speak key
+    if (m_speakKey && m_speakKey->Contains(pos)) {
+        return m_speakKey;
     }
 
     // Check regular keys
@@ -776,6 +808,11 @@ std::vector<KeyRenderInfo> KeyboardView::GetKeysForRendering() const
     // Add swipe toggle key
     if (m_swipeToggleKey) {
         renderInfo.push_back(makeRenderInfo(m_swipeToggleKey));
+    }
+
+    // Add speak key
+    if (m_speakKey) {
+        renderInfo.push_back(makeRenderInfo(m_speakKey));
     }
 
     // Add modifier keys

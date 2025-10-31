@@ -20,31 +20,38 @@ set(SRC_DIR ${PROJECT_SOURCE_DIR}/src)
 set(INCLUDE_DIR ${PROJECT_SOURCE_DIR}/include)
 set(ASSETS_DIR ${PROJECT_SOURCE_DIR}/assets)
 
-# Source files
+# Core source files (always compiled)
 set(SOURCES
     ${SRC_DIR}/main.cpp
     ${SRC_DIR}/keybutton.cpp
     ${SRC_DIR}/keyboardview.cpp
     ${SRC_DIR}/gazetracker.cpp
-    ${SRC_DIR}/textinputengine.cpp
     ${SRC_DIR}/eyeoverlay.cpp
     ${SRC_DIR}/CircularButton.cpp
     ${SRC_DIR}/settings.cpp
+)
+
+# Core header files (always included)
+set(HEADERS
+    ${INCLUDE_DIR}/keybutton.h
+    ${INCLUDE_DIR}/keyboardview.h
+    ${INCLUDE_DIR}/gazetracker.h
+    ${INCLUDE_DIR}/eyeoverlay.h
+    ${INCLUDE_DIR}/CircularButton.h
+    ${INCLUDE_DIR}/settings.h
+)
+
+# ML-related sources (only compiled if ML features are enabled)
+set(ML_SOURCES
+    ${SRC_DIR}/textinputengine.cpp
     ${SRC_DIR}/lightgbm_ranker.cpp
     ${SRC_DIR}/ranking_features.cpp
     ${SRC_DIR}/ranking_features_helper.cpp
     ${SRC_DIR}/ml_helpers.cpp
 )
 
-# Header files
-set(HEADERS
-    ${INCLUDE_DIR}/keybutton.h
-    ${INCLUDE_DIR}/keyboardview.h
-    ${INCLUDE_DIR}/gazetracker.h
+set(ML_HEADERS
     ${INCLUDE_DIR}/textinputengine.h
-    ${INCLUDE_DIR}/eyeoverlay.h
-    ${INCLUDE_DIR}/CircularButton.h
-    ${INCLUDE_DIR}/settings.h
     ${INCLUDE_DIR}/lightgbm_ranker.h
     ${INCLUDE_DIR}/ranking_features.h
     ${INCLUDE_DIR}/ml_helpers.h
@@ -74,19 +81,23 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 # Uncomment sections as needed for full functionality
 # ============================================================================
 
+# Track whether any ML features are enabled
+set(ML_ENABLED FALSE)
+
 # ONNX Runtime (for swipe encoder model)
 option(USE_ONNX "Enable ONNX Runtime for ML swipe prediction" OFF)
 if(USE_ONNX)
+    set(ML_ENABLED TRUE)
     find_path(ONNXRUNTIME_INCLUDE_DIR onnxruntime_cxx_api.h
         PATHS
-            ${PROJECT_SOURCE_DIR}/../to_combined/HeyEyeTracker/onnxruntime-win-x64-1.19.2/include
+            ${PROJECT_SOURCE_DIR}/onnxruntime-win-x64-1.19.2/include
             /usr/local/include
             /usr/include
     )
     find_library(ONNXRUNTIME_LIBRARY
         NAMES onnxruntime
         PATHS
-            ${PROJECT_SOURCE_DIR}/../to_combined/HeyEyeTracker/onnxruntime-win-x64-1.19.2/lib
+            ${PROJECT_SOURCE_DIR}/onnxruntime-win-x64-1.19.2/lib
             /usr/local/lib
             /usr/lib
     )
@@ -126,6 +137,7 @@ endif()
 # FAISS (for vector similarity search)
 option(USE_FAISS "Enable FAISS for vocabulary search" OFF)
 if(USE_FAISS)
+    set(ML_ENABLED TRUE)
     find_path(FAISS_INCLUDE_DIR faiss/IndexFlat.h
         PATHS
             D:/Deps/vcpkg/installed/x64-windows/include
@@ -152,6 +164,7 @@ endif()
 # KenLM (for language model scoring)
 option(USE_KENLM "Enable KenLM for language model" OFF)
 if(USE_KENLM)
+    set(ML_ENABLED TRUE)
     find_path(KENLM_INCLUDE_DIR lm/model.hh
         PATHS
             D:/Deps/kenlm
@@ -201,6 +214,7 @@ endif()
 # LightGBM (for ranking)
 option(USE_LIGHTGBM "Enable LightGBM for ranking" OFF)
 if(USE_LIGHTGBM)
+    set(ML_ENABLED TRUE)
     find_path(LIGHTGBM_INCLUDE_DIR LightGBM/c_api.h
         PATHS
             D:/Deps/vcpkg/installed/x64-windows/include
@@ -283,6 +297,105 @@ if(USE_TOBII)
     endif()
 endif()
 
+# espeak-ng (for text-to-speech)
+option(USE_ESPEAK "Enable espeak-ng for text-to-speech" OFF)
+if(USE_ESPEAK)
+    # Find espeak-ng library
+    find_path(ESPEAK_INCLUDE_DIR espeak-ng/speak_lib.h
+        PATHS
+            ${PROJECT_SOURCE_DIR}/espeak-ng/src/include
+            /usr/local/include
+            /usr/include
+    )
+    find_library(ESPEAK_LIBRARY
+        NAMES espeak-ng libespeak-ng
+        PATHS
+            ${PROJECT_SOURCE_DIR}/espeak-ng/build/src/libespeak-ng/Release
+            ${PROJECT_SOURCE_DIR}/espeak-ng/build/src/libespeak-ng/Debug
+            ${PROJECT_SOURCE_DIR}/espeak-ng/build/Release
+            ${PROJECT_SOURCE_DIR}/espeak-ng/build/Debug
+            ${PROJECT_SOURCE_DIR}/espeak-ng/build
+            /usr/local/lib
+            /usr/lib
+    )
+
+    if(ESPEAK_INCLUDE_DIR AND ESPEAK_LIBRARY)
+        target_include_directories(${PROJECT_NAME} PRIVATE ${ESPEAK_INCLUDE_DIR})
+        target_link_libraries(${PROJECT_NAME} PRIVATE ${ESPEAK_LIBRARY})
+        target_compile_definitions(${PROJECT_NAME} PRIVATE USE_ESPEAK)
+        message(STATUS "espeak-ng found: ${ESPEAK_LIBRARY}")
+        message(STATUS "  Include dir: ${ESPEAK_INCLUDE_DIR}")
+
+        # Copy espeak-ng DLL and data to output directory on Windows
+        if(WIN32)
+            # The DLL is in espeak-ng/build/src/Release (not in the same dir as the .lib)
+            set(ESPEAK_DLL_PATH "${PROJECT_SOURCE_DIR}/espeak-ng/build/src/Release/espeak-ng.dll")
+            if(NOT EXISTS "${ESPEAK_DLL_PATH}")
+                set(ESPEAK_DLL_PATH "${PROJECT_SOURCE_DIR}/espeak-ng/build/src/Debug/espeak-ng.dll")
+            endif()
+
+            if(EXISTS "${ESPEAK_DLL_PATH}")
+                add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                        "${ESPEAK_DLL_PATH}"
+                        $<TARGET_FILE_DIR:${PROJECT_NAME}>
+                    COMMENT "Copying espeak-ng.dll to output directory"
+                )
+                message(STATUS "  DLL path: ${ESPEAK_DLL_PATH}")
+            else()
+                message(WARNING "espeak-ng.dll not found")
+            endif()
+
+            # Copy espeak-ng-data directory if it exists
+            set(ESPEAK_DATA_DIR "${PROJECT_SOURCE_DIR}/espeak-ng/build/espeak-ng-data")
+            if(NOT EXISTS "${ESPEAK_DATA_DIR}")
+                set(ESPEAK_DATA_DIR "${PROJECT_SOURCE_DIR}/espeak-ng-data")
+            endif()
+
+            if(EXISTS "${ESPEAK_DATA_DIR}")
+                add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_directory
+                        "${ESPEAK_DATA_DIR}"
+                        $<TARGET_FILE_DIR:${PROJECT_NAME}>/espeak-ng-data
+                    COMMENT "Copying espeak-ng-data to output directory"
+                )
+                message(STATUS "  Data dir: ${ESPEAK_DATA_DIR}")
+            else()
+                message(WARNING "espeak-ng-data directory not found")
+            endif()
+        endif()
+    else()
+        message(WARNING "espeak-ng not found")
+        message(STATUS "  ESPEAK_INCLUDE_DIR: ${ESPEAK_INCLUDE_DIR}")
+        message(STATUS "  ESPEAK_LIBRARY: ${ESPEAK_LIBRARY}")
+    endif()
+endif()
+
+# ============================================================================
+# Conditional Source Files
+# Add ML and espeak sources only if features are enabled
+# ============================================================================
+
+# Add ML sources if any ML feature is enabled
+if(ML_ENABLED)
+    target_sources(${PROJECT_NAME} PRIVATE ${ML_SOURCES})
+    target_sources(${PROJECT_NAME} PRIVATE ${ML_HEADERS})
+    message(STATUS "ML sources enabled")
+else()
+    message(STATUS "ML sources disabled - building without ML features")
+endif()
+
+# Add espeak sources if enabled
+if(USE_ESPEAK AND ESPEAK_INCLUDE_DIR AND ESPEAK_LIBRARY)
+    target_sources(${PROJECT_NAME} PRIVATE
+        ${SRC_DIR}/espeakengine.cpp
+        ${INCLUDE_DIR}/espeakengine.h
+    )
+    message(STATUS "espeak sources enabled")
+else()
+    message(STATUS "espeak sources disabled - building without text-to-speech")
+endif()
+
 # ============================================================================
 # Windows-specific settings
 # ============================================================================
@@ -357,6 +470,7 @@ message(STATUS "  KenLM:        ${USE_KENLM}")
 message(STATUS "  LightGBM:     ${USE_LIGHTGBM}")
 message(STATUS "  msgpack-c:    ${USE_MSGPACK}")
 message(STATUS "  Tobii SDK:    ${USE_TOBII}")
+message(STATUS "  espeak-ng:    ${USE_ESPEAK}")
 message(STATUS "")
 message(STATUS "Build directory: ${CMAKE_BINARY_DIR}")
 message(STATUS "Install prefix:  ${CMAKE_INSTALL_PREFIX}")

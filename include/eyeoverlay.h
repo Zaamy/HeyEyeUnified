@@ -11,6 +11,9 @@
 #include "textinputengine.h"
 #include "CircularButton.h"
 #include "settings.h"
+#ifdef USE_ESPEAK
+#include "espeakengine.h"
+#endif
 
 /**
  * @brief Full-screen transparent overlay providing eye-controlled interface (HeyEyeControl style)
@@ -49,6 +52,7 @@ private:
     void OnSpacePressed();
     void OnBackspacePressed();
     void OnEnterPressed();
+    void OnSpeakPressed();
     void OnTextChanged(const wxString& text);
 
     // Button handlers
@@ -61,6 +65,9 @@ private:
     KeyboardView* m_keyboard;
     TextInputEngine* m_textEngine;
     Settings* m_settings;
+#ifdef USE_ESPEAK
+    ESpeakEngine* m_espeakEngine;
+#endif
 
     // Circular buttons (HeyEyeControl style)
     std::vector<std::unique_ptr<CircularButton>> m_visibleButtons;

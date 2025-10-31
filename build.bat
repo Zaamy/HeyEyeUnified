@@ -20,7 +20,8 @@ cmake .. -G "Visual Studio 16 2019" -A x64 ^
     -DUSE_FAISS=ON ^
     -DUSE_KENLM=ON ^
     -DUSE_LIGHTGBM=ON ^
-    -DUSE_MSGPACK=ON
+    -DUSE_MSGPACK=ON ^
+    -DUSE_ESPEAK=ON
 
 
 if %ERRORLEVEL% NEQ 0 (
