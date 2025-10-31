@@ -94,6 +94,7 @@ public:
     std::function<void(const std::vector<std::pair<float, float>>&)> OnSwipeCompleted;
     std::function<void()> OnSpacePressed;
     std::function<void()> OnBackspacePressed;
+    std::function<void()> OnDeleteWordPressed;
     std::function<void()> OnEnterPressed;
     std::function<void()> OnSpeakPressed;
 
@@ -125,6 +126,7 @@ private:
     KeyButton* m_capsLockKey;
     KeyButton* m_altgrKey;
     KeyButton* m_backspaceKey;
+    KeyButton* m_deleteWordKey;
     KeyButton* m_enterKey;
     KeyButton* m_swipeToggleKey;
     KeyButton* m_speakKey;

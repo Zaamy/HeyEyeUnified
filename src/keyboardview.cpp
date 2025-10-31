@@ -16,6 +16,7 @@ KeyboardView::KeyboardView(wxWindow *parent)
     , m_capsLockKey(nullptr)
     , m_altgrKey(nullptr)
     , m_backspaceKey(nullptr)
+    , m_deleteWordKey(nullptr)
     , m_enterKey(nullptr)
     , m_swipeToggleKey(nullptr)
     , m_speakKey(nullptr)
@@ -38,6 +39,7 @@ KeyboardView::KeyboardView(wxWindow *parent)
     , OnSwipeCompleted(nullptr)
     , OnSpacePressed(nullptr)
     , OnBackspacePressed(nullptr)
+    , OnDeleteWordPressed(nullptr)
     , OnEnterPressed(nullptr)
     , OnSpeakPressed(nullptr)
 {
@@ -61,6 +63,7 @@ KeyboardView::~KeyboardView()
     delete m_capsLockKey;
     delete m_altgrKey;
     delete m_backspaceKey;
+    delete m_deleteWordKey;
     delete m_enterKey;
     delete m_swipeToggleKey;
     delete m_speakKey;
@@ -267,6 +270,9 @@ void KeyboardView::RenderToDC(wxDC& dc)
     }
     if (m_backspaceKey) {
         m_backspaceKey->Draw(dc, m_normalColor, m_hoverColor, m_progressColor, m_shiftActive, m_capsLockActive, m_altgrActive);
+    }
+    if (m_deleteWordKey) {
+        m_deleteWordKey->Draw(dc, m_normalColor, m_hoverColor, m_progressColor, m_shiftActive, m_capsLockActive, m_altgrActive);
     }
     if (m_enterKey) {
         m_enterKey->Draw(dc, m_normalColor, m_hoverColor, m_progressColor, m_shiftActive, m_capsLockActive, m_altgrActive);
@@ -481,12 +487,22 @@ void KeyboardView::CreateKeyboard()
         }
     };
 
-    m_backspaceKey = new KeyButton(KeyType::Backspace, wxT("⌫"), wxRect2DDouble());
+    m_backspaceKey = new KeyButton(KeyType::Backspace, wxT("<-"), wxRect2DDouble());
     m_backspaceKey->OnActivated = [this]() {
         if (OnBackspacePressed) {
             OnBackspacePressed();
             if (m_currentHoveredKey == m_backspaceKey) {
                 m_backspaceKey->SetProgress(0.0f);
+            }
+        }
+    };
+
+    m_deleteWordKey = new KeyButton(KeyType::Backspace, wxT("<--"), wxRect2DDouble());
+    m_deleteWordKey->OnActivated = [this]() {
+        if (OnDeleteWordPressed) {
+            OnDeleteWordPressed();
+            if (m_currentHoveredKey == m_deleteWordKey) {
+                m_deleteWordKey->SetProgress(0.0f);
             }
         }
     };
@@ -539,11 +555,10 @@ void KeyboardView::UpdateKeyGeometries()
 
     // Calculate key size based on widget dimensions
     // Need space for 12 keys in the longest row + spacing
-    // Increased key spacing for better visibility of multi-layer characters
     float availableWidth = clientSize.GetWidth() - m_keySpacing * 13;
     float keyWidth = availableWidth / 12.0f;
 
-    // Need space for 7 rows (4 regular + 1 space/modifiers + 1 swipe toggle + padding)
+    // Need space for 7 rows (4 regular + 1 space/modifiers + 1 control row + padding)
     float availableHeight = clientSize.GetHeight() - m_keySpacing * 8;
     float keyHeight = availableHeight / 7.0f;
 
@@ -551,14 +566,18 @@ void KeyboardView::UpdateKeyGeometries()
     float keySize = std::min(keyWidth, keyHeight) * 1.2f;
     m_keySize = keySize;  // Store for coordinate normalization
 
-    // Position regular keys in 4 rows
+    // Calculate total keyboard width (12 keys) for centering
+    float keyboardWidth = 12.0f * keySize + 11.0f * m_keySpacing;
+    float keyboardOffsetX = (clientSize.GetWidth() - keyboardWidth) / 2.0f;
+
+    // Position regular keys in 4 rows (centered horizontally)
     size_t keyIndex = 0;
     for (size_t row = 0; row < rowSizes.size(); ++row) {
         size_t numKeys = rowSizes[row];
 
         for (size_t col = 0; col < numKeys; ++col) {
             float xOffset = std::fmod((0.5f * row), 1.5f);
-            float x = (col + xOffset) * (keySize + m_keySpacing);
+            float x = keyboardOffsetX + (col + xOffset) * (keySize + m_keySpacing);
 
             // Special offset for row 3 (bottom row)
             if (row == 3) {
@@ -573,65 +592,72 @@ void KeyboardView::UpdateKeyGeometries()
         }
     }
 
-    // Row 4: Space bar and modifier keys
+    // Row 4: Space bar and modifier keys (centered)
     float row4Y = 4 * (keySize + m_keySpacing);
 
     // Left side: Shift, Caps, AltGr (1 key width each)
     if (m_shiftKey) {
-        float x = 0;
+        float x = keyboardOffsetX;
         wxRect2DDouble rect(x, row4Y, keySize, keySize);
         m_shiftKey->SetGeometry(rect);
     }
 
     if (m_capsLockKey) {
-        float x = (keySize + m_keySpacing);
+        float x = keyboardOffsetX + (keySize + m_keySpacing);
         wxRect2DDouble rect(x, row4Y, keySize, keySize);
         m_capsLockKey->SetGeometry(rect);
     }
 
     if (m_altgrKey) {
-        float x = 2 * (keySize + m_keySpacing);
+        float x = keyboardOffsetX + 2 * (keySize + m_keySpacing);
         wxRect2DDouble rect(x, row4Y, keySize, keySize);
         m_altgrKey->SetGeometry(rect);
     }
 
     // Center: Space bar (5 keys width)
     if (m_spaceKey) {
-        float spaceX = 3 * (keySize + m_keySpacing);
+        float spaceX = keyboardOffsetX + 3 * (keySize + m_keySpacing);
         float spaceWidth = 5 * keySize + 4 * m_keySpacing;
         wxRect2DDouble spaceRect(spaceX, row4Y, spaceWidth, keySize);
         m_spaceKey->SetGeometry(spaceRect);
     }
 
-    // Right side: Backspace, Enter (1.5 key width each)
-    if (m_backspaceKey) {
-        float x = 8 * (keySize + m_keySpacing);
-        float width = 1.5f * keySize + 0.5f * m_keySpacing;
-        wxRect2DDouble rect(x, row4Y, width, keySize);
-        m_backspaceKey->SetGeometry(rect);
-    }
-
+    // Right side: Enter (2 key width)
     if (m_enterKey) {
-        float x = 9.5f * (keySize + m_keySpacing) + 0.5f * keySize;
-        float width = 1.5f * keySize + 0.5f * m_keySpacing;
+        float x = keyboardOffsetX + 8 * (keySize + m_keySpacing);
+        float width = 4.0f * keySize + 3.0f * m_keySpacing;
         wxRect2DDouble rect(x, row4Y, width, keySize);
         m_enterKey->SetGeometry(rect);
     }
 
-    // Row 5: Swipe toggle and Speak keys (centered at bottom)
+    // Row 5: Control buttons - SWIPE, <-, <-- (horizontally aligned, centered above keyboard)
+    // These go between the edit box and the keyboard
     float row5Y = 5 * (keySize + m_keySpacing);
-    float buttonWidth = 2.5f * keySize + 1.5f * m_keySpacing;
-    float totalWidth = 2 * buttonWidth + m_keySpacing;
-    float startX = (clientSize.GetWidth() - totalWidth) / 2.0f;
+    float controlButtonWidth = 2.0f * keySize;
+    float totalControlWidth = 3 * controlButtonWidth + 2 * m_keySpacing;
+    float controlStartX = (clientSize.GetWidth() - totalControlWidth) / 2.0f;
 
     if (m_swipeToggleKey) {
-        wxRect2DDouble rect(startX, row5Y, buttonWidth, keySize);
+        wxRect2DDouble rect(controlStartX, row5Y, controlButtonWidth, keySize);
         m_swipeToggleKey->SetGeometry(rect);
     }
 
+    if (m_backspaceKey) {
+        float x = controlStartX + controlButtonWidth + m_keySpacing;
+        wxRect2DDouble rect(x, row5Y, controlButtonWidth, keySize);
+        m_backspaceKey->SetGeometry(rect);
+    }
+
+    if (m_deleteWordKey) {
+        float x = controlStartX + 2 * (controlButtonWidth + m_keySpacing);
+        wxRect2DDouble rect(x, row5Y, controlButtonWidth, keySize);
+        m_deleteWordKey->SetGeometry(rect);
+    }
+
+    // Note: Speak key will be positioned in EyeOverlay next to the edit box
+    // We'll keep it hidden here by positioning it off-screen
     if (m_speakKey) {
-        float speakX = startX + buttonWidth + m_keySpacing;
-        wxRect2DDouble rect(speakX, row5Y, buttonWidth, keySize);
+        wxRect2DDouble rect(-1000, -1000, keySize, keySize);
         m_speakKey->SetGeometry(rect);
     }
 }
@@ -664,6 +690,9 @@ KeyButton* KeyboardView::FindKeyAtPosition(const wxPoint2DDouble &pos)
     }
     if (m_backspaceKey && m_backspaceKey->Contains(pos)) {
         return m_backspaceKey;
+    }
+    if (m_deleteWordKey && m_deleteWordKey->Contains(pos)) {
+        return m_deleteWordKey;
     }
     if (m_enterKey && m_enterKey->Contains(pos)) {
         return m_enterKey;
@@ -827,6 +856,9 @@ std::vector<KeyRenderInfo> KeyboardView::GetKeysForRendering() const
     }
     if (m_backspaceKey) {
         renderInfo.push_back(makeRenderInfo(m_backspaceKey));
+    }
+    if (m_deleteWordKey) {
+        renderInfo.push_back(makeRenderInfo(m_deleteWordKey));
     }
     if (m_enterKey) {
         renderInfo.push_back(makeRenderInfo(m_enterKey));

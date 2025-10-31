@@ -51,6 +51,7 @@ private:
     void OnSwipeCompleted(const std::vector<std::pair<float, float>>& path);
     void OnSpacePressed();
     void OnBackspacePressed();
+    void OnDeleteWordPressed();
     void OnEnterPressed();
     void OnSpeakPressed();
     void OnTextChanged(const wxString& text);

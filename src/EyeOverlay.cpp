@@ -609,29 +609,34 @@ void EyeOverlay::DrawKeyboardWithGC(wxGraphicsContext* gc, const wxColour& color
     // Build workflow buttons only once when keyboard is first shown
     // These are separate from the keyboard keys and positioned independently
     if (m_keyboardKeys.empty()) {
-        // Build Undo button
-        int undoX = clientSize.GetWidth()/2 - 300;
-        int undoY = 180;
-        int undoSize = 100;
-        m_keyboardKeys.push_back(KeyboardKey(wxT("UNDO"), wxRect(undoX - undoSize/2, undoY - undoSize/2, undoSize, undoSize)));
+        // Calculate positions relative to keyboard area
+        int buttonSize = 100;
+        int buttonSpacing = 20;
 
-        // Build Submit button
-        int submitX = clientSize.GetWidth()/2 + 300;
-        int submitY = 180;
-        int submitSize = 100;
-        m_keyboardKeys.push_back(KeyboardKey(wxT("SUBMIT"), wxRect(submitX - submitSize/2, submitY - submitSize/2, submitSize, submitSize)));
+        // Left side buttons (UNDO and MENU) - vertically stacked, to the left of keyboard
+        int leftX = keyboardX - buttonSize - 50;  // 50px gap from keyboard
+        int leftTopY = keyboardY + 50;
 
-        // Build Submit w/ RETURN button
-        int submitReturnX = clientSize.GetWidth()/2 + 150;
-        int submitReturnY = 320;
-        int submitReturnSize = 100;
-        m_keyboardKeys.push_back(KeyboardKey(wxT("SUBMIT_RETURN"), wxRect(submitReturnX - submitReturnSize/2, submitReturnY - submitReturnSize/2, submitReturnSize, submitReturnSize)));
+        // Build UNDO button (top-left)
+        m_keyboardKeys.push_back(KeyboardKey(wxT("UNDO"), wxRect(leftX, leftTopY, buttonSize, buttonSize)));
 
-        // Build MENU button
-        int menuX = clientSize.GetWidth()/2 - 150;
-        int menuY = 320;
-        int menuSize = 100;
-        m_keyboardKeys.push_back(KeyboardKey(wxT("MENU"), wxRect(menuX - menuSize/2, menuY - menuSize/2, menuSize, menuSize)));
+        // Build MENU button (below UNDO)
+        m_keyboardKeys.push_back(KeyboardKey(wxT("MENU"), wxRect(leftX, leftTopY + buttonSize + buttonSpacing, buttonSize, buttonSize)));
+
+        // Right side buttons (SUBMIT and SUBMIT_RETURN) - vertically stacked, to the right of keyboard
+        int rightX = keyboardX + keyboardWidth + 50;  // 50px gap from keyboard
+        int rightTopY = keyboardY + 50;
+
+        // Build SUBMIT button (top-right)
+        m_keyboardKeys.push_back(KeyboardKey(wxT("SUBMIT"), wxRect(rightX, rightTopY, buttonSize, buttonSize)));
+
+        // Build Submit w/ RETURN button (below SUBMIT)
+        m_keyboardKeys.push_back(KeyboardKey(wxT("SUBMIT_RETURN"), wxRect(rightX, rightTopY + buttonSize + buttonSpacing, buttonSize, buttonSize)));
+
+        // Build SPEAK button (square, to the right of edit box)
+        int speakX = textBoxX + textBoxWidth + 20;  // 20px gap from text box
+        int speakSize = textBoxHeight;  // Same height as text box (square)
+        m_keyboardKeys.push_back(KeyboardKey(wxT("SPEAK"), wxRect(speakX, textBoxY, speakSize, speakSize)));
     }
 
     // Draw workflow buttons (UNDO, SUBMIT, SUBMIT_RETURN, MENU)
@@ -666,7 +671,7 @@ void EyeOverlay::DrawKeyboardWithGC(wxGraphicsContext* gc, const wxColour& color
 
 void EyeOverlay::HandleKeyActivation(const wxString& keyLabel)
 {
-    // This method now only handles workflow buttons (UNDO, SUBMIT, SUBMIT_RETURN, MENU)
+    // This method now only handles workflow buttons (UNDO, SUBMIT, SUBMIT_RETURN, MENU, SPEAK)
     // Keyboard keys (letters, space, backspace, etc.) are handled by KeyboardView callbacks
     wxLogMessage("Workflow button activated: %s", keyLabel);
 
@@ -689,6 +694,9 @@ void EyeOverlay::HandleKeyActivation(const wxString& keyLabel)
         ShowKeyboard(false);
         m_keyboardKeys.clear();
         CreateButtonsAtCenter();
+    } else if (keyLabel == wxT("SPEAK")) {
+        // Speak button - speak the current text using espeak
+        OnSpeakPressed();
     }
 }
 
@@ -944,6 +952,14 @@ void EyeOverlay::OnBackspacePressed()
     }
 }
 
+void EyeOverlay::OnDeleteWordPressed()
+{
+    wxLogMessage("Delete word pressed");
+    if (m_textEngine) {
+        m_textEngine->DeleteLastWord();
+    }
+}
+
 void EyeOverlay::OnEnterPressed()
 {
     wxLogMessage("Enter pressed");
@@ -1003,6 +1019,9 @@ void EyeOverlay::SetupUI()
     };
     m_keyboard->OnBackspacePressed = [this]() {
         OnBackspacePressed();
+    };
+    m_keyboard->OnDeleteWordPressed = [this]() {
+        OnDeleteWordPressed();
     };
     m_keyboard->OnEnterPressed = [this]() {
         OnEnterPressed();
