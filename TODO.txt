@@ -1,0 +1,3 @@
+static linking + remove symbol
+add a toolbar icon (used to exit the app - no more quit button)
+add an options layer

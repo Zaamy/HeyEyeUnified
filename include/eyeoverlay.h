@@ -121,6 +121,7 @@ private:
     int m_settingSelectionHeight;       // Default 300
 
     // Helper methods
+    void CaptureScreenshotIfNeeded();  // Capture screenshot at current gaze position if not already captured
     void CreateButtonsAtCenter();
     void ClearAllButtons();
     bool UpdateDwellDetection(float x, float y, uint64_t timestamp);  // Returns true if visual state changed

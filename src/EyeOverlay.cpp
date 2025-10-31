@@ -282,8 +282,8 @@ void EyeOverlay::OnPaint(wxPaintEvent& event)
         gc->DrawRectangle(0, 0, clientSize.GetWidth(), clientSize.GetHeight());
     }
 
-    // Draw screenshot if available
-    if (m_hasScreenshot) {
+    // Draw screenshot if available and button menu is visible (not during keyboard layer)
+    if (m_hasScreenshot && !m_keyboardVisible) {
 
         int centerX = clientSize.GetWidth() / 2;
         int centerY = clientSize.GetHeight() / 2;
@@ -626,9 +626,15 @@ void EyeOverlay::DrawKeyboardWithGC(wxGraphicsContext* gc, const wxColour& color
         int submitReturnY = 320;
         int submitReturnSize = 100;
         m_keyboardKeys.push_back(KeyboardKey(wxT("SUBMIT_RETURN"), wxRect(submitReturnX - submitReturnSize/2, submitReturnY - submitReturnSize/2, submitReturnSize, submitReturnSize)));
+
+        // Build MENU button
+        int menuX = clientSize.GetWidth()/2 - 150;
+        int menuY = 320;
+        int menuSize = 100;
+        m_keyboardKeys.push_back(KeyboardKey(wxT("MENU"), wxRect(menuX - menuSize/2, menuY - menuSize/2, menuSize, menuSize)));
     }
 
-    // Draw workflow buttons (UNDO, SUBMIT, SUBMIT_RETURN)
+    // Draw workflow buttons (UNDO, SUBMIT, SUBMIT_RETURN, MENU)
     wxFont workflowFont(12, wxFONTFAMILY_DEFAULT, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD);
     gc->SetFont(workflowFont, color);
 
@@ -660,20 +666,29 @@ void EyeOverlay::DrawKeyboardWithGC(wxGraphicsContext* gc, const wxColour& color
 
 void EyeOverlay::HandleKeyActivation(const wxString& keyLabel)
 {
-    // This method now only handles workflow buttons (UNDO, SUBMIT, SUBMIT_RETURN)
+    // This method now only handles workflow buttons (UNDO, SUBMIT, SUBMIT_RETURN, MENU)
     // Keyboard keys (letters, space, backspace, etc.) are handled by KeyboardView callbacks
     wxLogMessage("Workflow button activated: %s", keyLabel);
 
     if (keyLabel == wxT("UNDO")) {
-        // Undo button - hide keyboard and return to normal overlay
+        // Undo button - clear all text, hide keyboard, and clear screenshot
+        if (m_textEngine) {
+            m_textEngine->Clear();
+        }
         ShowKeyboard(false);
         m_keyboardKeys.clear();
+        ClearAllButtons();  // Clear screenshot state since this is a full reset
     } else if (keyLabel == wxT("SUBMIT")) {
         // Submit button - send text to focused application (without RETURN)
         SubmitText();
     } else if (keyLabel == wxT("SUBMIT_RETURN")) {
         // Submit w/ RETURN button - send text and press RETURN
         SubmitTextWithReturn();
+    } else if (keyLabel == wxT("MENU")) {
+        // Menu button - return to button menu with preserved screenshot context
+        ShowKeyboard(false);
+        m_keyboardKeys.clear();
+        CreateButtonsAtCenter();
     }
 }
 
@@ -1002,17 +1017,8 @@ void EyeOverlay::UpdateButtonPositions()
     // No persistent buttons to update (keyboard button is now in the radial panel)
 }
 
-void EyeOverlay::CreateButtonsAtCenter()
+void EyeOverlay::CaptureScreenshotIfNeeded()
 {
-    // Clear any existing buttons
-    m_visibleButtons.clear();
-    m_dwellProgress = 0.0f;
-    m_positionHistory.clear();
-    m_timestampHistory.clear();
-
-    // Always bring window to front when creating buttons
-    EnsureOnTop();
-
     // Only take screenshot if we don't have one yet (first time or after undo)
     if (!m_hasScreenshot) {
         // Save the screenshot position (where gaze was when dwell completed)
@@ -1071,6 +1077,21 @@ void EyeOverlay::CreateButtonsAtCenter()
         Show();  // Must call Show() since we called Hide() before screenshot
         Refresh();  // Force repaint to show buttons
     }
+}
+
+void EyeOverlay::CreateButtonsAtCenter()
+{
+    // Clear any existing buttons
+    m_visibleButtons.clear();
+    m_dwellProgress = 0.0f;
+    m_positionHistory.clear();
+    m_timestampHistory.clear();
+
+    // Always bring window to front when creating buttons
+    EnsureOnTop();
+
+    // Capture screenshot if needed (extracted to separate method)
+    CaptureScreenshotIfNeeded();
 
     // Create buttons at center of screen
     wxSize clientSize = GetClientSize();
@@ -1088,7 +1109,12 @@ void EyeOverlay::CreateButtonsAtCenter()
         );
         btnKeyboard->OnActivated = [this]() {
             ShowKeyboard(!m_keyboardVisible);
-            ClearAllButtons();
+            // Clear buttons but preserve screenshot for MENU button to use
+            m_visibleButtons.clear();
+            m_dwellProgress = 0.0f;
+            m_positionHistory.clear();
+            m_timestampHistory.clear();
+            // Don't clear m_hasScreenshot, m_screenshot, m_screenshotPosition, m_screenshotSourceRect
         };
         m_visibleButtons.push_back(std::move(btnKeyboard));
     }
@@ -1702,12 +1728,14 @@ bool EyeOverlay::UpdateDwellDetection(float x, float y, uint64_t timestamp)
                     // Exit zoom mode and recreate buttons
                     m_isZoomed = false;
 
+                    // Capture screenshot first (before checking text cursor)
+                    CaptureScreenshotIfNeeded();
+
                     // Check if we're on a text cursor - if so, show keyboard instead of buttons
                     if (m_settings && m_settings->GetAutoShowKeyboard() &&
                         IsTextCursorAtPosition(static_cast<int>(x), static_cast<int>(y))) {
                         wxLogMessage("Text cursor detected - showing keyboard instead of buttons");
-                        // Save the dwell position for Submit to use
-                        m_screenshotPosition = wxPoint(static_cast<int>(x), static_cast<int>(y));
+                        // Screenshot position already captured above
                         ShowKeyboard(true);
                     } else {
                         CreateButtonsAtCenter();
@@ -1716,12 +1744,14 @@ bool EyeOverlay::UpdateDwellDetection(float x, float y, uint64_t timestamp)
                     // Normal mode - create buttons at center
                     wxLogMessage("DWELL COMPLETE! Creating buttons at center...");
 
+                    // Capture screenshot first (before checking text cursor)
+                    CaptureScreenshotIfNeeded();
+
                     // Check if we're on a text cursor - if so, show keyboard instead of buttons
                     if (m_settings && m_settings->GetAutoShowKeyboard() &&
                         IsTextCursorAtPosition(static_cast<int>(x), static_cast<int>(y))) {
                         wxLogMessage("Text cursor detected - showing keyboard instead of buttons");
-                        // Save the dwell position for Submit to use
-                        m_screenshotPosition = wxPoint(static_cast<int>(x), static_cast<int>(y));
+                        // Screenshot position already captured above
                         ShowKeyboard(true);
                     } else {
                         CreateButtonsAtCenter();
