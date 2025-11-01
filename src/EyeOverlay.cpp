@@ -500,8 +500,32 @@ void EyeOverlay::DrawKeyboardWithGC(wxGraphicsContext* gc, const wxColour& color
     int keyboardX = (clientSize.GetWidth() - keyboardWidth) / 2;
     int keyboardY = clientSize.GetHeight() - keyboardHeight - 50;
 
+    // Position control buttons (SWIPE, <-, <--) between edit box and keyboard
+    int controlButtonWidth = 150;
+    int controlButtonHeight = 60;
+    int controlButtonSpacing = 20;
+    int totalControlWidth = 3 * controlButtonWidth + 2 * controlButtonSpacing;
+    int controlX = (clientSize.GetWidth() - totalControlWidth) / 2;
+    int controlY = textBoxY + textBoxHeight + 30;  // 30px below edit box
+
     // Get all keys from KeyboardView with their current state
     std::vector<KeyRenderInfo> keys = m_keyboard->GetKeysForRendering();
+
+    // Draw control buttons first (SWIPE, <-, <--) between edit box and keyboard
+    wxFont controlFont(16, wxFONTFAMILY_DEFAULT, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD);
+
+    for (const auto& keyInfo : keys) {
+        wxString label;
+        if (keyInfo.keyType != KeyType::Character) {
+            label = keyInfo.primaryLabel;
+        }
+
+        // Skip control buttons - they're drawn from m_keyboardKeys instead
+        if (label == wxT("Swipe") || label == wxT("<-") || label == wxT("<--")) {
+            continue;
+        }
+
+    }
 
     // Draw all keyboard keys (translated to overlay coordinates)
     // Active character: larger and bold (the one that will be typed)
@@ -512,6 +536,16 @@ void EyeOverlay::DrawKeyboardWithGC(wxGraphicsContext* gc, const wxColour& color
     wxColour inactiveColor(color.Red(), color.Green(), color.Blue(), 150);
 
     for (const auto& keyInfo : keys) {
+        // Get label to check if this is a control button
+        wxString label;
+        if (keyInfo.keyType != KeyType::Character) {
+            label = keyInfo.primaryLabel;
+        }
+
+        // Skip control buttons (already drawn above)
+        if (label == wxT("Swipe") || label == wxT("<-") || label == wxT("<--")) {
+            continue;
+        }
         // Translate KeyboardView coordinates to overlay coordinates
         wxRect2DDouble keyGeom = keyInfo.geometry;
         int keyX = keyboardX + static_cast<int>(keyGeom.m_x);
@@ -637,6 +671,12 @@ void EyeOverlay::DrawKeyboardWithGC(wxGraphicsContext* gc, const wxColour& color
         int speakX = textBoxX + textBoxWidth + 20;  // 20px gap from text box
         int speakSize = textBoxHeight;  // Same height as text box (square)
         m_keyboardKeys.push_back(KeyboardKey(wxT("SPEAK"), wxRect(speakX, textBoxY, speakSize, speakSize)));
+
+        // Build control buttons (SWIPE, <-, <--) - positioned between edit box and keyboard
+        // These need to be tracked in overlay, not in KeyboardView
+        m_keyboardKeys.push_back(KeyboardKey(wxT("SWIPE"), wxRect(controlX, controlY, controlButtonWidth, controlButtonHeight)));
+        m_keyboardKeys.push_back(KeyboardKey(wxT("<-"), wxRect(controlX + controlButtonWidth + controlButtonSpacing, controlY, controlButtonWidth, controlButtonHeight)));
+        m_keyboardKeys.push_back(KeyboardKey(wxT("<--"), wxRect(controlX + 2 * (controlButtonWidth + controlButtonSpacing), controlY, controlButtonWidth, controlButtonHeight)));
     }
 
     // Draw workflow buttons (UNDO, SUBMIT, SUBMIT_RETURN, MENU)
@@ -648,9 +688,17 @@ void EyeOverlay::DrawKeyboardWithGC(wxGraphicsContext* gc, const wxColour& color
         int centerX = bounds.x + bounds.width / 2;
         int centerY = bounds.y + bounds.height / 2;
 
-        // Draw key rectangle
+        // Draw key rectangle with background
         gc->SetPen(wxPen(color, 2));
-        gc->SetBrush(*wxTRANSPARENT_BRUSH);
+
+        // SWIPE button: show selected state when swipe mode is enabled
+        if (key.label == wxT("SWIPE") && m_keyboard && m_keyboard->IsSwipeEnabled()) {
+            // Filled background when swipe mode is active
+            gc->SetBrush(wxBrush(wxColour(color.Red(), color.Green(), color.Blue(), 100)));
+        } else {
+            gc->SetBrush(*wxTRANSPARENT_BRUSH);
+        }
+
         gc->DrawRoundedRectangle(bounds.x, bounds.y, bounds.width, bounds.height, 10);
 
         // Draw key label
@@ -671,9 +719,9 @@ void EyeOverlay::DrawKeyboardWithGC(wxGraphicsContext* gc, const wxColour& color
 
 void EyeOverlay::HandleKeyActivation(const wxString& keyLabel)
 {
-    // This method now only handles workflow buttons (UNDO, SUBMIT, SUBMIT_RETURN, MENU, SPEAK)
-    // Keyboard keys (letters, space, backspace, etc.) are handled by KeyboardView callbacks
-    wxLogMessage("Workflow button activated: %s", keyLabel);
+    // This method handles workflow buttons and control buttons
+    // Keyboard keys (letters, space, etc.) are handled by KeyboardView callbacks
+    wxLogMessage("Button activated: %s", keyLabel);
 
     if (keyLabel == wxT("UNDO")) {
         // Undo button - clear all text, hide keyboard, and clear screenshot
@@ -697,6 +745,18 @@ void EyeOverlay::HandleKeyActivation(const wxString& keyLabel)
     } else if (keyLabel == wxT("SPEAK")) {
         // Speak button - speak the current text using espeak
         OnSpeakPressed();
+    } else if (keyLabel == wxT("SWIPE")) {
+        // Swipe toggle button - enable/disable swipe mode
+        if (m_keyboard) {
+            m_keyboard->SetSwipeEnabled(!m_keyboard->IsSwipeEnabled());
+            Refresh();  // Update visual state immediately
+        }
+    } else if (keyLabel == wxT("<-")) {
+        // Backspace button - delete last character
+        OnBackspacePressed();
+    } else if (keyLabel == wxT("<--")) {
+        // Delete word button - delete last word
+        OnDeleteWordPressed();
     }
 }
 
@@ -755,13 +815,34 @@ void EyeOverlay::OnGazePositionUpdated(float x, float y, uint64_t timestamp)
         int keyboardX = (clientSize.GetWidth() - keyboardWidth) / 2;
         int keyboardY = clientSize.GetHeight() - keyboardHeight - 50;
 
-        // Convert to keyboard-local coordinates
-        float keyboardLocalX = static_cast<float>(overlayPos.x - keyboardX);
-        float keyboardLocalY = static_cast<float>(overlayPos.y - keyboardY);
+        // Calculate control buttons position (same as in DrawKeyboardWithGC)
+        int textBoxHeight = 80;
+        int textBoxY = 50;
+        int controlButtonWidth = 150;
+        int controlButtonHeight = 60;
+        int controlButtonSpacing = 20;
+        int totalControlWidth = 3 * controlButtonWidth + 2 * controlButtonSpacing;
+        int controlX = (clientSize.GetWidth() - totalControlWidth) / 2;
+        int controlY = textBoxY + textBoxHeight + 30;
 
-        // Pass keyboard-local coordinates to KeyboardView
-        // KeyboardView handles all dwell tracking and activation for keyboard keys internally
-        m_keyboard->UpdateGazePosition(keyboardLocalX, keyboardLocalY);
+        // Handle control buttons (SWIPE, <-, <--) directly in overlay (NOT in KeyboardView)
+        // These buttons are drawn in the overlay, so their hit detection should be here too
+        bool isOverControlButtons = (overlayPos.y >= controlY && overlayPos.y < controlY + controlButtonHeight &&
+                                      overlayPos.x >= controlX && overlayPos.x < controlX + totalControlWidth);
+
+        if (isOverControlButtons) {
+            // Don't pass control button coordinates to KeyboardView - handle entirely in overlay
+            // KeyboardView should not receive any gaze input when over control buttons
+            // Instead, we'll add control buttons to m_keyboardKeys for dwell tracking below
+        } else {
+            // Normal keyboard area - convert to keyboard-local coordinates and pass to KeyboardView
+            float keyboardLocalX = static_cast<float>(overlayPos.x - keyboardX);
+            float keyboardLocalY = static_cast<float>(overlayPos.y - keyboardY);
+
+            // Pass keyboard-local coordinates to KeyboardView
+            // KeyboardView handles all dwell tracking and activation for keyboard keys internally
+            m_keyboard->UpdateGazePosition(keyboardLocalX, keyboardLocalY);
+        }
 
         // Track dwelling on workflow buttons (UNDO, SUBMIT, SUBMIT_RETURN) only
         // These are separate from the keyboard keys and managed in the overlay

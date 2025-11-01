@@ -115,11 +115,15 @@ void KeyboardView::UpdateGazePosition(float x, float y)
         float keyWidth = availableWidth / 12.0f;
         float keySize = std::min(keyWidth, keyHeight) * 1.2f;
 
-        // Swipe zone boundaries
+        // Calculate keyboard offset (for centered keyboard)
+        float keyboardWidth = 12.0f * keySize + 11.0f * m_keySpacing;
+        float keyboardOffsetX = (clientSize.GetWidth() - keyboardWidth) / 2.0f;
+
+        // Swipe zone boundaries (relative to keyboard position)
         float swipeZoneTop = 0.0f;  // Top of row 0
         float swipeZoneBottom = 4.0f * (keySize + m_keySpacing);  // Top of spacebar row (row 4)
-        float swipeZoneLeft = 0.0f;
-        float swipeZoneRight = clientSize.GetWidth();
+        float swipeZoneLeft = keyboardOffsetX;  // Left edge of centered keyboard
+        float swipeZoneRight = keyboardOffsetX + keyboardWidth;  // Right edge of centered keyboard
 
         // Swipe detection based on actual keyboard geometry
         if (m_swipeEnabled) {
@@ -141,11 +145,15 @@ void KeyboardView::UpdateGazePosition(float x, float y)
                 // Record point with normalization (same as HeyEyeTracker)
                 if (m_recordingSwipe) {
                     // Normalize coordinates to match the model's expected input range
-                    // Original HeyEyeTracker formula:
+                    // Adjust for keyboard offset - subtract offset to get keyboard-relative position
+                    float keyboardRelativeX = m_gazePosition.m_x - keyboardOffsetX;
+                    float keyboardRelativeY = m_gazePosition.m_y;
+
+                    // Original HeyEyeTracker formula (using keyboard-relative coordinates):
                     // x_neural_net = x / (13 * key_size) * 260 - 10
                     // y_neural_net = 100 - y / (5 * key_size) * 100
-                    float x_normalized = m_gazePosition.m_x / (13.0f * m_keySize) * 260.0f - 10.0f;
-                    float y_normalized = 100.0f - m_gazePosition.m_y / (5.0f * m_keySize) * 100.0f;
+                    float x_normalized = keyboardRelativeX / (13.0f * m_keySize) * 260.0f - 10.0f;
+                    float y_normalized = 100.0f - keyboardRelativeY / (5.0f * m_keySize) * 100.0f;
 
                     m_swipePath.push_back(std::make_pair(x_normalized, y_normalized));
                 }
@@ -283,11 +291,16 @@ void KeyboardView::RenderToDC(wxDC& dc)
         dc.SetPen(wxPen(m_swipePathColor, 3));
         dc.SetBrush(*wxTRANSPARENT_BRUSH);
 
+        // Calculate keyboard offset for denormalization
+        wxSize clientSize = GetClientSize();
+        float keyboardWidth = 12.0f * m_keySize + 11.0f * m_keySpacing;
+        float keyboardOffsetX = (clientSize.GetWidth() - keyboardWidth) / 2.0f;
+
         // Helper lambda to de-normalize coordinates for visualization
-        // Inverse of: x_norm = x / (13 * keySize) * 260 - 10
+        // Inverse of: x_norm = (x - offset) / (13 * keySize) * 260 - 10
         //             y_norm = 100 - y / (5 * keySize) * 100
-        auto denormalize = [this](float x_norm, float y_norm) -> wxPoint {
-            float x_pixel = (x_norm + 10.0f) / 260.0f * (13.0f * m_keySize);
+        auto denormalize = [this, keyboardOffsetX](float x_norm, float y_norm) -> wxPoint {
+            float x_pixel = (x_norm + 10.0f) / 260.0f * (13.0f * m_keySize) + keyboardOffsetX;
             float y_pixel = (100.0f - y_norm) / 100.0f * (5.0f * m_keySize);
             return wxPoint(static_cast<int>(x_pixel), static_cast<int>(y_pixel));
         };
@@ -673,9 +686,20 @@ void KeyboardView::UpdateDwellProgress(KeyButton *key, float deltaMs)
 
 KeyButton* KeyboardView::FindKeyAtPosition(const wxPoint2DDouble &pos)
 {
-    // Check space bar first (larger target)
+    // Check space bar (larger target)
     if (m_spaceKey && m_spaceKey->Contains(pos)) {
         return m_spaceKey;
+    }
+
+    // Check control buttons
+    if (m_swipeToggleKey && m_swipeToggleKey->Contains(pos)) {
+        return m_swipeToggleKey;
+    }
+    if (m_backspaceKey && m_backspaceKey->Contains(pos)) {
+        return m_backspaceKey;
+    }
+    if (m_deleteWordKey && m_deleteWordKey->Contains(pos)) {
+        return m_deleteWordKey;
     }
 
     // Check modifier keys
